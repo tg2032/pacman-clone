@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#05050f">
 <title>パックマン クローン</title>
 <style>
   :root {
@@ -10,21 +11,38 @@
     --panel: #0d0d22;
     --accent: #ffd23f;
     --text: #e8e8ff;
+    --wall: #2b4cff;
+    --chrome: 150px;
+    --w: min(560px, calc(100vw - 24px), calc((100vh - var(--chrome)) * .9032));
   }
+  @supports (height: 100dvh) {
+    :root { --w: min(560px, calc(100vw - 24px), calc((100dvh - var(--chrome)) * .9032)); }
+  }
+  @media (pointer: coarse) { :root { --chrome: 340px; } }
+  .touch { --chrome: 340px; }
+
   * { box-sizing: border-box; }
   html, body { overscroll-behavior: none; }
   body {
     margin: 0;
     min-height: 100vh;
-    background: radial-gradient(circle at 50% 0%, #14143a 0%, var(--bg) 70%);
+    background: radial-gradient(circle at 50% 0%, #14143a 0%, var(--bg) 70%) var(--bg);
     color: var(--text);
     font-family: "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    padding: 16px;
+    gap: 10px;
+    padding: 12px;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  header, #hud, #touch { width: var(--w); }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
   h1 {
     margin: 0;
@@ -33,53 +51,64 @@
     color: var(--accent);
     text-shadow: 0 0 12px rgba(255, 210, 63, .5);
   }
+  .icon {
+    border: 1px solid #2b4cff66;
+    background: var(--panel);
+    color: var(--text);
+    border-radius: 8px;
+    font-size: 16px;
+    line-height: 1;
+    padding: 6px 10px;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .icon:hover { background: #1b1b44; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   #hud {
-    width: 100%;
-    max-width: 560px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     font-size: 15px;
     font-variant-numeric: tabular-nums;
   }
-  #lives { display: flex; gap: 6px; align-items: center; }
+  #lives { display: flex; gap: 6px; align-items: center; min-width: 54px; justify-content: flex-end; }
   .life {
     width: 14px; height: 14px; border-radius: 50%;
     background: var(--accent);
     clip-path: polygon(100% 25%, 45% 50%, 100% 75%, 100% 100%, 0 100%, 0 0, 100% 0);
   }
-  #wrap { position: relative; line-height: 0; touch-action: none; }
-  canvas {
+  #wrap {
+    position: relative;
+    width: var(--w);
+    line-height: 0;
+    touch-action: none;
     background: #000;
     border: 2px solid #23237a;
     border-radius: 8px;
     box-shadow: 0 0 40px rgba(40, 40, 200, .35);
-    max-width: 100%;
-    height: auto;
-    touch-action: none;
+    overflow: hidden;
   }
+  canvas { display: block; width: 100%; height: auto; touch-action: none; }
   #overlay {
     position: absolute; inset: 0;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    gap: 10px;
+    gap: 8px;
+    padding: 12px;
     background: rgba(0, 0, 0, .68);
-    border-radius: 8px;
     text-align: center;
     line-height: 1.6;
-    font-size: 16px;
+    font-size: clamp(13px, 3.4vw, 16px);
   }
   #overlay.hidden { display: none; }
-  #overlay .big { font-size: 26px; color: var(--accent); letter-spacing: .1em; }
-  #overlay .small { font-size: 13px; opacity: .75; }
-  footer { font-size: 12px; opacity: .6; text-align: center; }
+  #overlay .big { font-size: clamp(20px, 6vw, 26px); color: var(--accent); letter-spacing: .1em; }
+  #overlay .small { font-size: 12px; opacity: .75; }
+  footer { font-size: 12px; opacity: .6; text-align: center; max-width: var(--w); }
 
-  #touch {
-    display: flex;
-    justify-content: center;
-    width: 100%;
-    max-width: 560px;
-  }
+  #touch { display: none; justify-content: center; }
+  .touch #touch { display: flex; }
+  @media (pointer: coarse) { #touch { display: flex; } }
   #dpad {
     display: grid;
     grid-template-columns: repeat(3, 58px);
@@ -101,7 +130,6 @@
     align-items: center;
     justify-content: center;
     touch-action: none;
-    user-select: none;
     -webkit-tap-highlight-color: transparent;
     cursor: pointer;
     padding: 0;
@@ -114,28 +142,28 @@
   .tbtn.action { grid-area: action; font-size: 24px; border-color: var(--accent); }
   .tbtn.restart { grid-area: restart; font-size: 16px; opacity: .8; }
 
-  @media (max-width: 420px) {
-    body { gap: 8px; padding: 10px; }
-    footer { display: none; }
-  }
+  @media (max-width: 420px), (pointer: coarse) { footer { display: none; } }
 </style>
 </head>
 <body>
-<h1>PAC-MAN</h1>
+<header>
+  <h1>PAC-MAN</h1>
+  <button id="btnMute" class="icon" aria-label="サウンドの切り替え" title="サウンド (M)">🔊</button>
+</header>
 
 <div id="hud">
   <div>SCORE <span id="score">0</span></div>
   <div>LEVEL <span id="level">1</span></div>
   <div>HIGH <span id="high">0</span></div>
-  <div id="lives"></div>
+  <div id="lives" aria-label="残機"></div>
 </div>
 
 <div id="wrap">
-  <canvas id="game" width="560" height="620"></canvas>
-  <div id="overlay">
+  <canvas id="game" width="560" height="620" role="img" aria-label="パックマンのゲーム画面"></canvas>
+  <div id="overlay" aria-live="polite">
     <div class="big" id="ovTitle">READY?</div>
-    <div id="ovText">タップ / 矢印キーで移動</div>
-    <div class="small">SPACE・タップ：スタート / ポーズ　　R・⟳：リスタート</div>
+    <div id="ovText">タップ / SPACE でスタート</div>
+    <div class="small" id="ovHint">矢印キー / WASD / スワイプで移動　P：ポーズ　R：リスタート　M：ミュート</div>
   </div>
 </div>
 
@@ -150,11 +178,25 @@
   </div>
 </div>
 
-<footer>パワーエサでゴーストを食べられる（200 → 400 → 800 → 1600 点）／ 矢印キー・スワイプ・十字ボタンで操作</footer>
+<footer>パワーエサでゴーストを食べられる（200 → 400 → 800 → 1600 点）／ フルーツで追加ボーナス ／ 10000 点で 1UP</footer>
 
 <script>
 (() => {
 "use strict";
+
+const TEST = location.hash === "#test";
+
+// ---------------------------------------------------------------- 安全なストレージ
+// 隔離された iframe などでは localStorage が例外を投げることがある
+const store = {
+  get(key, fallback) {
+    try { const v = localStorage.getItem(key); return v === null ? fallback : v; }
+    catch (e) { return fallback; }
+  },
+  set(key, value) {
+    try { localStorage.setItem(key, String(value)); } catch (e) { /* 保存できなくても続行 */ }
+  },
+};
 
 // ---------------------------------------------------------------- 迷路データ
 // # 壁 / X 表示しない壁 / . エサ / o パワーエサ / - ゴーストの巣の扉 / 空白 通路
@@ -193,11 +235,14 @@ const MAZE = [
 ];
 
 const COLS = 28, ROWS = 31, TILE = 20;
+const W = COLS * TILE, H = ROWS * TILE;
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-// 通路（エサの有無）だけを保持する可変グリッド
-let grid, pelletsLeft;
+// 高解像度ディスプレイでもくっきり描画する
+const DPR = Math.min(window.devicePixelRatio || 1, 3);
+canvas.width = Math.round(W * DPR);
+canvas.height = Math.round(H * DPR);
 
 const wrapCol = c => ((c % COLS) + COLS) % COLS;
 function tileAt(c, r) {
@@ -223,29 +268,39 @@ const OPPOSITE = { up: "down", down: "up", left: "right", right: "left" };
 
 const HOUSE = { c: 13, r: 14 };      // 巣の中心
 const DOOR_OUT = { c: 13, r: 11 };   // 巣の出口（扉の上）
+const FRUIT_POS = { x: 14 * TILE, y: 17.5 * TILE };
+const FRUIT_SPAWN_AT = [70, 170];    // 食べたエサの数
+const FRUIT_POINTS = [100, 300, 500, 500, 700, 700, 1000, 1000, 2000, 2000, 3000, 3000, 5000];
+const EXTRA_LIFE_AT = 10000;
+const ELROY_AT = 20;
 
 const state = {
   score: 0,
-  high: Number(localStorage.getItem("pacman-high") || 0),
+  high: Number(store.get("pacman-high", 0)) || 0,
   level: 1,
   lives: 3,
   phase: "title",   // title | ready | play | dying | levelclear | gameover | paused
   timer: 0,
+  freeze: 0,
   ghostCombo: 0,
+  extraLife: false,
+  muted: store.get("pacman-muted", "0") === "1",
 };
 
-let pac, ghosts, modeTimer, modeIndex, frightTimer;
+let grid, pelletsLeft, totalPellets, fruit, fruitSpawned;
+let pac, ghosts, modeTimer, modeIndex, frightTimer, clock = 0;
+const popups = [];
 
-const SCATTER_CHASE = [7, 20, 7, 20, 5, 20, 5, Infinity]; // 秒
+const SCATTER_CHASE = [7, 20, 7, 20, 5, 20, 5, Infinity]; // 秒（偶数番目が散開）
 
 function makePac() {
-  return { c: 13, r: 23, dir: "left", want: "left", prog: 0, mouth: 0, dead: 0 };
+  return { c: 13, r: 23, dir: "left", want: "left", prog: 0, mouth: 0, dead: 0, blocked: false };
 }
 
 function makeGhost(name, color, scatter, c, r, releaseAt) {
   return {
     name, color, scatter,
-    c, r, startC: c, startR: r,
+    c, r,
     dir: "up", prog: 0,
     mode: releaseAt > 0 ? "house" : "out",  // house | out | eyes
     release: releaseAt,
@@ -265,13 +320,18 @@ function resetActors() {
   modeTimer = 0;
   modeIndex = 0;
   frightTimer = 0;
+  fruit = null;
   state.ghostCombo = 0;
+  state.freeze = 0;
 }
 
 function resetLevel() {
   grid = MAZE.map(row => row.split(""));
   pelletsLeft = 0;
   for (const row of grid) for (const ch of row) if (ch === "." || ch === "o") pelletsLeft++;
+  totalPellets = pelletsLeft;
+  fruitSpawned = 0;
+  popups.length = 0;
   resetActors();
 }
 
@@ -280,8 +340,10 @@ function newGame() {
   state.level = 1;
   state.lives = 3;
   state.ghostCombo = 0;
+  state.extraLife = false;
   resetLevel();
-  setPhase("ready", 2);
+  setPhase("ready", 2.2);
+  sfx.start();
 }
 
 function setPhase(p, seconds = 0) {
@@ -290,15 +352,58 @@ function setPhase(p, seconds = 0) {
   updateOverlay();
 }
 
-// ---------------------------------------------------------------- 入力
-const keyMap = {
-  ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
-  KeyW: "up", KeyS: "down", KeyA: "left", KeyD: "right",
-  w: "up", s: "down", a: "left", d: "right",
-  W: "up", S: "down", A: "left", D: "right",
+// ---------------------------------------------------------------- 効果音（WebAudio）
+const audio = { ctx: null, master: null, flip: false };
+function ensureAudio() {
+  try {
+    if (!audio.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      audio.ctx = new AC();
+      audio.master = audio.ctx.createGain();
+      audio.master.gain.value = state.muted ? 0 : 0.7;
+      audio.master.connect(audio.ctx.destination);
+    }
+    if (audio.ctx.state === "suspended") audio.ctx.resume();
+  } catch (e) { /* 音が出せない環境は無視 */ }
+}
+function tone(freq, dur, opt = {}) {
+  if (!audio.ctx || state.muted) return;
+  try {
+    const t0 = audio.ctx.currentTime + (opt.delay || 0);
+    const o = audio.ctx.createOscillator(), g = audio.ctx.createGain();
+    o.type = opt.type || "square";
+    o.frequency.setValueAtTime(freq, t0);
+    if (opt.to) o.frequency.exponentialRampToValueAtTime(opt.to, t0 + dur);
+    g.gain.setValueAtTime(opt.gain || 0.05, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g).connect(audio.master);
+    o.start(t0);
+    o.stop(t0 + dur + 0.02);
+  } catch (e) { /* 無視 */ }
+}
+const sfx = {
+  waka() { audio.flip = !audio.flip; tone(audio.flip ? 520 : 380, 0.05, { gain: 0.045 }); },
+  power() { tone(160, 0.3, { to: 90, gain: 0.06 }); },
+  eatGhost() { tone(300, 0.22, { to: 1000, gain: 0.06 }); },
+  fruit() { tone(880, 0.08); tone(1320, 0.14, { delay: 0.08 }); },
+  death() { tone(620, 1.2, { to: 60, type: "sawtooth", gain: 0.06 }); },
+  extra() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.12, { delay: i * 0.1 })); },
+  clear() { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(f, 0.14, { delay: i * 0.12 })); },
+  start() { [392, 523, 659, 784].forEach((f, i) => tone(f, 0.16, { delay: i * 0.14, gain: 0.04 })); },
 };
-// 方向入力・開始/ポーズ・リスタートは、キーボード／タップ十字ボタン／
-// スワイプのどこから来ても同じ処理を通す。
+function buzz(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* 無視 */ } }
+
+function setMuted(m) {
+  state.muted = m;
+  store.set("pacman-muted", m ? "1" : "0");
+  if (audio.master) audio.master.gain.value = m ? 0 : 0.7;
+  document.getElementById("btnMute").textContent = m ? "🔇" : "🔊";
+}
+
+// ---------------------------------------------------------------- 入力
+// 方向入力・開始/ポーズ・リスタートは、キーボード／十字ボタン／スワイプの
+// どこから来ても同じ処理を通す。
 function handleDir(dir) {
   pac.want = dir;
   // 逆方向は通路の途中でも即座に反転できる
@@ -309,34 +414,70 @@ function handleAction() {
   else if (state.phase === "play") setPhase("paused");
   else if (state.phase === "paused") setPhase("play");
 }
-function handleRestart() {
-  newGame();
+function handleRestart() { newGame(); }
+function handlePause() {
+  if (state.phase === "play") setPhase("paused");
+  else if (state.phase === "paused") setPhase("play");
 }
 
+const keyMap = {
+  ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+  KeyW: "up", KeyS: "down", KeyA: "left", KeyD: "right",
+  w: "up", s: "down", a: "left", d: "right",
+};
 addEventListener("keydown", e => {
-  const dir = keyMap[e.code] || keyMap[e.key];
+  ensureAudio();
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key && e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const dir = keyMap[e.code] || keyMap[k];
   if (dir) { e.preventDefault(); handleDir(dir); return; }
-  if (e.code === "Space" || e.key === " ") { e.preventDefault(); handleAction(); }
-  if (e.code === "KeyR" || e.key === "r" || e.key === "R") handleRestart();
+  if (e.repeat) return;
+  if (e.code === "Space" || k === " ") { e.preventDefault(); handleAction(); }
+  else if (e.code === "KeyR" || k === "r") handleRestart();
+  else if (e.code === "KeyP" || k === "p") handlePause();
+  else if (e.code === "KeyM" || k === "m") setMuted(!state.muted);
 });
+addEventListener("pointerdown", ensureAudio, { capture: true });
 
 // ---------------------------------------------------------------- タッチ操作（スマホ対応）
+addEventListener("touchstart", () => document.documentElement.classList.add("touch"), { once: true, passive: true });
+
 document.querySelectorAll("#dpad [data-dir]").forEach(btn => {
   btn.addEventListener("pointerdown", e => { e.preventDefault(); handleDir(btn.dataset.dir); });
 });
 document.getElementById("btnAction").addEventListener("pointerdown", e => { e.preventDefault(); handleAction(); });
 document.getElementById("btnRestart").addEventListener("pointerdown", e => { e.preventDefault(); handleRestart(); });
+document.getElementById("btnMute").addEventListener("click", () => setMuted(!state.muted));
 
-// キャンバス／オーバーレイ上のスワイプ＝方向転換、軽いタップ＝スタート/ポーズ
+// 盤面上のスワイプ：指が一定距離動いた瞬間に方向転換し、起点を更新して連続入力も可能。
+// ほぼ動かさずに離した場合はタップ＝スタート/ポーズ。
+const SWIPE_MIN = 22;
 const wrapEl = document.getElementById("wrap");
-let swipeFrom = null;
-wrapEl.addEventListener("pointerdown", e => { swipeFrom = { x: e.clientX, y: e.clientY }; });
-wrapEl.addEventListener("pointerup", e => {
-  if (!swipeFrom) return;
-  const dx = e.clientX - swipeFrom.x, dy = e.clientY - swipeFrom.y;
-  swipeFrom = null;
-  if (Math.hypot(dx, dy) < 18) { handleAction(); return; }
+let swipe = null;
+wrapEl.addEventListener("pointerdown", e => {
+  swipe = { x: e.clientX, y: e.clientY, moved: false, id: e.pointerId };
+  try { wrapEl.setPointerCapture(e.pointerId); } catch (err) { /* 無視 */ }
+});
+wrapEl.addEventListener("pointermove", e => {
+  if (!swipe || e.pointerId !== swipe.id) return;
+  const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+  if (Math.hypot(dx, dy) < SWIPE_MIN) return;
+  swipe.moved = true;
+  swipe.x = e.clientX; swipe.y = e.clientY;
   handleDir(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up"));
+});
+function endSwipe(e) {
+  if (!swipe || e.pointerId !== swipe.id) return;
+  const wasTap = !swipe.moved;
+  swipe = null;
+  if (wasTap && e.type === "pointerup") handleAction();
+}
+wrapEl.addEventListener("pointerup", endSwipe);
+wrapEl.addEventListener("pointercancel", endSwipe);
+
+// タブが裏に回ったら自動でポーズ
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && state.phase === "play") setPhase("paused");
 });
 
 // ---------------------------------------------------------------- 移動処理
@@ -383,7 +524,8 @@ function pacArrive() {
     grid[pac.r][pac.c] = " ";
     pelletsLeft--;
     addScore(10);
-    beep(660, 0.04, 0.05);
+    sfx.waka();
+    onPelletEaten();
   } else if (cell === "o") {
     grid[pac.r][pac.c] = " ";
     pelletsLeft--;
@@ -391,11 +533,20 @@ function pacArrive() {
     frightTimer = Math.max(2, 8 - (state.level - 1) * 0.6);
     state.ghostCombo = 0;
     for (const g of ghosts) if (g.mode === "out") reverse(g);
-    beep(180, 0.25, 0.06);
+    sfx.power();
+    onPelletEaten();
   }
   // 曲がれるなら希望方向へ
   const w = DIRS[pac.want];
   if (!isWall(pac.c + w.x, pac.r + w.y, false)) pac.dir = pac.want;
+}
+
+function onPelletEaten() {
+  const eaten = totalPellets - pelletsLeft;
+  if (fruitSpawned < FRUIT_SPAWN_AT.length && eaten >= FRUIT_SPAWN_AT[fruitSpawned]) {
+    fruitSpawned++;
+    fruit = { t: 9.5 };
+  }
 }
 
 // ---------------------------------------------------------------- ゴーストAI
@@ -403,7 +554,8 @@ function ghostTarget(g) {
   if (g.mode === "eyes") return HOUSE;
   if (g.mode === "house") return DOOR_OUT;
   if (frightTimer > 0) return null;                 // ランダム移動
-  if (SCATTER_CHASE[modeIndex] !== Infinity && modeIndex % 2 === 0) return g.scatter;
+  const elroy = g.name === "blinky" && pelletsLeft <= ELROY_AT;
+  if (modeIndex % 2 === 0 && !elroy) return g.scatter;
 
   const pd = DIRS[pac.dir];
   switch (g.name) {
@@ -424,12 +576,10 @@ function ghostTarget(g) {
 }
 
 function ghostArrive(g) {
-  if (g.mode === "eyes" && g.c === HOUSE.c && Math.abs(g.r - HOUSE.r) <= 0) {
+  if (g.mode === "eyes" && g.c === HOUSE.c && g.r === HOUSE.r) {
     g.mode = "house";
     g.release = 0.6;
-    return chooseGhostDir(g);
-  }
-  if (g.mode === "house" && g.r === DOOR_OUT.r && g.c === DOOR_OUT.c) {
+  } else if (g.mode === "house" && g.r === DOOR_OUT.r && g.c === DOOR_OUT.c) {
     g.mode = "out";
   }
   chooseGhostDir(g);
@@ -440,7 +590,7 @@ function chooseGhostDir(g) {
   const target = ghostTarget(g);
   const options = [];
   for (const dir of DIR_LIST) {
-    if (dir === OPPOSITE[g.dir] ) continue;          // 反転は禁止
+    if (dir === OPPOSITE[g.dir]) continue;           // 反転は禁止
     const d = DIRS[dir];
     if (isWall(g.c + d.x, g.r + d.y, doorOpen)) continue;
     options.push(dir);
@@ -461,11 +611,14 @@ function chooseGhostDir(g) {
 }
 
 function ghostSpeed(g) {
-  const base = 6.2 + (state.level - 1) * 0.25;
+  const base = Math.min(6.2 + (state.level - 1) * 0.25, 9);
   if (g.mode === "eyes") return 15;
   if (g.mode === "house") return 4;
-  if (frightTimer > 0) return base * 0.55;
-  return Math.min(base, 9);
+  let s = base;
+  if (frightTimer > 0) s = base * 0.55;
+  else if (g.name === "blinky") s = base * (pelletsLeft <= ELROY_AT / 2 ? 1.1 : pelletsLeft <= ELROY_AT ? 1.05 : 1);
+  if (g.r === 14 && (g.c <= 5 || g.c >= 22)) s *= 0.55; // ワープトンネルでは減速
+  return s;
 }
 
 // ---------------------------------------------------------------- 更新
@@ -473,7 +626,13 @@ function addScore(n) {
   state.score += n;
   if (state.score > state.high) {
     state.high = state.score;
-    localStorage.setItem("pacman-high", String(state.high));
+    store.set("pacman-high", state.high);
+  }
+  if (!state.extraLife && state.score >= EXTRA_LIFE_AT) {
+    state.extraLife = true;
+    state.lives++;
+    sfx.extra();
+    popups.push({ x: W / 2, y: 17.5 * TILE, text: "1UP", t: 1.4, color: "#ffd23f" });
   }
 }
 
@@ -491,37 +650,65 @@ function collide() {
     if (Math.hypot(p.x - q.x, p.y - q.y) > TILE * 0.7) continue;
     if (frightTimer > 0) {
       state.ghostCombo = Math.min(state.ghostCombo + 1, 4);
-      addScore(200 * Math.pow(2, state.ghostCombo - 1));
+      const pts = 200 * Math.pow(2, state.ghostCombo - 1);
+      addScore(pts);
+      popups.push({ x: q.x, y: q.y, text: String(pts), t: 1, color: "#58e8ff" });
       g.mode = "eyes";
       g.blocked = false;
-      beep(880, 0.15, 0.06);
+      state.freeze = 0.4;
+      sfx.eatGhost();
+      buzz(25);
     } else {
-      setPhase("dying", 1.6);
-      beep(200, 0.6, 0.07, "sawtooth");
+      setPhase("dying", 1.8);
+      sfx.death();
+      buzz(120);
       return;
     }
   }
 }
 
+function checkFruit(dt) {
+  if (!fruit) return;
+  fruit.t -= dt;
+  if (fruit.t <= 0) { fruit = null; return; }
+  const p = actorPos(pac);
+  if (Math.hypot(p.x - FRUIT_POS.x, p.y - FRUIT_POS.y) < TILE * 0.8) {
+    const pts = FRUIT_POINTS[Math.min(state.level - 1, FRUIT_POINTS.length - 1)];
+    addScore(pts);
+    popups.push({ x: FRUIT_POS.x, y: FRUIT_POS.y, text: String(pts), t: 1.2, color: "#ffb8ff" });
+    fruit = null;
+    sfx.fruit();
+  }
+}
+
 function update(dt) {
+  clock += dt;
+  for (let i = popups.length - 1; i >= 0; i--) {
+    popups[i].t -= dt;
+    if (popups[i].t <= 0) popups.splice(i, 1);
+  }
+
   if (state.phase === "ready" || state.phase === "levelclear" || state.phase === "dying") {
     state.timer -= dt;
+    if (state.phase === "dying") pac.dead += dt;
     if (state.timer <= 0) {
       if (state.phase === "ready") setPhase("play");
       else if (state.phase === "levelclear") {
         state.level++;
         resetLevel();
-        setPhase("ready", 1.6);
+        setPhase("ready", 1.8);
       } else { // dying
         state.lives--;
         if (state.lives <= 0) setPhase("gameover");
-        else { resetActors(); setPhase("ready", 1.6); }
+        else { resetActors(); setPhase("ready", 1.8); }
       }
     }
-    if (state.phase === "dying") pac.dead += dt;
     return;
   }
   if (state.phase !== "play") return;
+
+  // ゴースト撃破直後の一瞬の停止
+  if (state.freeze > 0) { state.freeze -= dt; return; }
 
   // モード（追跡／散開）タイマー
   if (frightTimer > 0) {
@@ -538,12 +725,12 @@ function update(dt) {
 
   pac.mouth += dt * 12;
   step(pac, 7 + (state.level - 1) * 0.15, dt, pacArrive, false);
+  checkFruit(dt);
 
   for (const g of ghosts) {
     if (g.mode === "house" && g.release > 0) {
       g.release -= dt;
-      // 巣の中で上下に揺れる
-      g.dir = (Math.floor(performance.now() / 400) % 2) ? "up" : "down";
+      g.dir = (Math.floor(clock / 0.4) % 2) ? "up" : "down"; // 巣の中で上下を見る
       continue;
     }
     step(g, ghostSpeed(g), dt, ghostArrive, g.mode !== "out");
@@ -551,44 +738,55 @@ function update(dt) {
 
   collide();
 
-  if (pelletsLeft === 0) setPhase("levelclear", 2);
+  if (state.phase === "play" && pelletsLeft === 0) {
+    fruit = null;
+    setPhase("levelclear", 2);
+    sfx.clear();
+  }
 }
 
 // ---------------------------------------------------------------- 描画
-function drawMaze() {
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = "#2b4cff";
-  ctx.lineCap = "round";
+// 迷路は変化しないので、オフスクリーンに一度だけ描いて毎フレーム貼り付ける
+function makeMazeLayer(color) {
+  const layer = document.createElement("canvas");
+  layer.width = canvas.width;
+  layer.height = canvas.height;
+  const g = layer.getContext("2d");
+  g.scale(DPR, DPR);
+  g.lineWidth = 2;
+  g.strokeStyle = color;
+  g.lineCap = "round";
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-      const t = MAZE[r][c];
-      if (t !== "#") continue;
+      if (MAZE[r][c] !== "#") continue;
       const x = c * TILE, y = r * TILE;
       const open = (dc, dr) => {
         const n = tileAt(c + dc, r + dr);
         return n !== "#" && n !== "X";
       };
-      ctx.beginPath();
-      if (open(0, -1)) { ctx.moveTo(x + 1, y + 1); ctx.lineTo(x + TILE - 1, y + 1); }
-      if (open(0,  1)) { ctx.moveTo(x + 1, y + TILE - 1); ctx.lineTo(x + TILE - 1, y + TILE - 1); }
-      if (open(-1, 0)) { ctx.moveTo(x + 1, y + 1); ctx.lineTo(x + 1, y + TILE - 1); }
-      if (open( 1, 0)) { ctx.moveTo(x + TILE - 1, y + 1); ctx.lineTo(x + TILE - 1, y + TILE - 1); }
-      ctx.stroke();
+      g.beginPath();
+      if (open(0, -1)) { g.moveTo(x + 1, y + 1); g.lineTo(x + TILE - 1, y + 1); }
+      if (open(0,  1)) { g.moveTo(x + 1, y + TILE - 1); g.lineTo(x + TILE - 1, y + TILE - 1); }
+      if (open(-1, 0)) { g.moveTo(x + 1, y + 1); g.lineTo(x + 1, y + TILE - 1); }
+      if (open( 1, 0)) { g.moveTo(x + TILE - 1, y + 1); g.lineTo(x + TILE - 1, y + TILE - 1); }
+      g.stroke();
     }
   }
-  // 巣の扉
-  ctx.strokeStyle = "#ff9ecb";
-  ctx.lineWidth = 3;
-  for (let c = 0; c < COLS; c++) {
-    for (let r = 0; r < ROWS; r++) {
+  g.strokeStyle = "#ff9ecb";
+  g.lineWidth = 3;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
       if (MAZE[r][c] !== "-") continue;
-      ctx.beginPath();
-      ctx.moveTo(c * TILE, r * TILE + TILE / 2);
-      ctx.lineTo(c * TILE + TILE, r * TILE + TILE / 2);
-      ctx.stroke();
+      g.beginPath();
+      g.moveTo(c * TILE, r * TILE + TILE / 2);
+      g.lineTo(c * TILE + TILE, r * TILE + TILE / 2);
+      g.stroke();
     }
   }
+  return layer;
 }
+const mazeBlue = makeMazeLayer("#2b4cff");
+const mazeWhite = makeMazeLayer("#ffffff");
 
 function drawPellets(time) {
   const blink = Math.sin(time * 8) > -0.4;
@@ -600,7 +798,7 @@ function drawPellets(time) {
         ctx.beginPath();
         ctx.arc((c + .5) * TILE, (r + .5) * TILE, 2.2, 0, Math.PI * 2);
         ctx.fill();
-      } else if (t === "o" && blink) {
+      } else if (t === "o" && (blink || state.phase !== "play")) {
         ctx.fillStyle = "#ffe9c0";
         ctx.beginPath();
         ctx.arc((c + .5) * TILE, (r + .5) * TILE, 6, 0, Math.PI * 2);
@@ -608,6 +806,54 @@ function drawPellets(time) {
       }
     }
   }
+}
+
+function drawFruit(level, x, y) {
+  const k = level <= 1 ? 0 : level === 2 ? 1 : level <= 4 ? 2 : level <= 6 ? 3 : level <= 8 ? 4 : 5;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.lineWidth = 1.6;
+  const stem = (x1, y1, x2, y2, col = "#3fbf3f") => {
+    ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  };
+  const ball = (cx, cy, r, col) => {
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+  };
+  switch (k) {
+    case 0: // さくらんぼ
+      stem(-3.5, 3, 1, -7, "#7ad37a"); stem(3.5, 3, 1, -7, "#7ad37a");
+      ball(-4, 4.5, 4.2, "#ff2a2a"); ball(4, 4.5, 4.2, "#ff2a2a");
+      ball(-5.2, 3.2, 1.1, "#ffb3b3"); ball(2.8, 3.2, 1.1, "#ffb3b3");
+      break;
+    case 1: // いちご
+      ctx.fillStyle = "#ff3355";
+      ctx.beginPath(); ctx.moveTo(-6.5, -3); ctx.quadraticCurveTo(0, -6, 6.5, -3);
+      ctx.quadraticCurveTo(5, 6, 0, 8); ctx.quadraticCurveTo(-5, 6, -6.5, -3); ctx.fill();
+      ctx.fillStyle = "#3fbf3f"; ctx.fillRect(-4.5, -6, 9, 2.6);
+      ctx.fillStyle = "#ffe9a8";
+      [[-2.5, 0], [2.5, 0], [0, 3], [-2.5, 4.5], [2.5, 4.5]].forEach(([sx, sy]) => ctx.fillRect(sx - .6, sy, 1.3, 1.3));
+      break;
+    case 2: // オレンジ
+      ball(0, 1.5, 6.5, "#ff9a1f"); stem(0, -5, 0, -7.5);
+      ctx.fillStyle = "#3fbf3f"; ctx.fillRect(0, -8, 4, 2.4);
+      break;
+    case 3: // りんご
+      ball(-2.8, 1.8, 5, "#ff2a2a"); ball(2.8, 1.8, 5, "#ff2a2a");
+      stem(0, -3, 1.5, -7, "#a06a2a");
+      break;
+    case 4: // メロン
+      ball(0, 1, 6.8, "#4fd16a");
+      ctx.strokeStyle = "#c9f7c9"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(-5, -2); ctx.lineTo(5, 4); ctx.moveTo(-5, 3); ctx.lineTo(5, -3);
+      ctx.moveTo(0, -5); ctx.lineTo(0, 7); ctx.stroke();
+      break;
+    default: // カギ
+      ctx.strokeStyle = "#58e8ff"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, -4, 3.2, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, -0.8); ctx.lineTo(0, 8); ctx.moveTo(0, 5); ctx.lineTo(3.5, 5);
+      ctx.moveTo(0, 8); ctx.lineTo(3.5, 8); ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawPac() {
@@ -643,11 +889,11 @@ function drawGhost(g, time) {
     ctx.beginPath();
     ctx.arc(x, y - R * 0.1, R, Math.PI, 0);
     ctx.lineTo(x + R, y + R * 0.75);
-    // 裾のギザギザ
-    const feet = 3, w = (R * 2) / feet;
+    // 裾のギザギザ（足が交互に動く）
+    const feet = 3, w = (R * 2) / feet, wob = Math.floor(time * 8) % 2;
     for (let i = 0; i < feet; i++) {
       const fx = x + R - i * w;
-      ctx.quadraticCurveTo(fx - w / 2, y + R * 0.75 - (i % 2 ? 6 : -4), fx - w, y + R * 0.75);
+      ctx.quadraticCurveTo(fx - w / 2, y + R * 0.75 - (((i + wob) % 2) ? 6 : -4), fx - w, y + R * 0.75);
     }
     ctx.closePath();
     ctx.fill();
@@ -673,15 +919,28 @@ function drawGhost(g, time) {
   }
 }
 
+function drawPopups() {
+  ctx.font = "bold 13px 'Segoe UI', sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (const p of popups) {
+    ctx.globalAlpha = Math.min(1, p.t * 2.5);
+    ctx.fillStyle = p.color;
+    ctx.fillText(p.text, p.x, p.y - (1 - Math.min(p.t, 1)) * 14);
+  }
+  ctx.globalAlpha = 1;
+}
+
 function draw(time) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.save();
-  ctx.translate(0, 0);
-  drawMaze();
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const flashWhite = state.phase === "levelclear" && Math.floor(state.timer * 4) % 2 === 0;
+  ctx.drawImage(flashWhite ? mazeWhite : mazeBlue, 0, 0, W, H);
   drawPellets(time);
+  if (fruit) drawFruit(state.level, FRUIT_POS.x, FRUIT_POS.y);
   drawPac();
-  if (state.phase !== "dying") for (const g of ghosts) drawGhost(g, time);
-  ctx.restore();
+  if (state.phase !== "dying" && state.phase !== "levelclear") for (const g of ghosts) drawGhost(g, time);
+  drawPopups();
 }
 
 // ---------------------------------------------------------------- HUD / オーバーレイ
@@ -693,15 +952,22 @@ const el = {
   overlay: document.getElementById("overlay"),
   ovTitle: document.getElementById("ovTitle"),
   ovText: document.getElementById("ovText"),
+  ovHint: document.getElementById("ovHint"),
+  btnAction: document.getElementById("btnAction"),
 };
+const hudCache = {};
+function setText(node, key, value) {
+  if (hudCache[key] !== value) { hudCache[key] = value; node.textContent = value; }
+}
 
 function updateHud() {
-  el.score.textContent = state.score;
-  el.level.textContent = state.level;
-  el.high.textContent = state.high;
-  if (el.lives.childElementCount !== Math.max(0, state.lives)) {
+  setText(el.score, "score", state.score);
+  setText(el.level, "level", state.level);
+  setText(el.high, "high", state.high);
+  const lives = Math.max(0, state.lives);
+  if (el.lives.childElementCount !== lives) {
     el.lives.innerHTML = "";
-    for (let i = 0; i < Math.max(0, state.lives); i++) {
+    for (let i = 0; i < lives; i++) {
       const d = document.createElement("div");
       d.className = "life";
       el.lives.appendChild(d);
@@ -710,55 +976,62 @@ function updateHud() {
 }
 
 function updateOverlay() {
-  const show = (title, text) => {
+  const show = (title, text, hint = false) => {
     el.overlay.classList.remove("hidden");
     el.ovTitle.textContent = title;
     el.ovText.textContent = text;
+    el.ovHint.style.display = hint ? "" : "none";
   };
   switch (state.phase) {
-    case "title":      show("PAC-MAN", "タップ / SPACE でスタート"); break;
+    case "title":      show("PAC-MAN", "タップ / SPACE でスタート", true); break;
     case "ready":      show("READY!", state.lives + " 機のこり"); break;
-    case "paused":     show("PAUSE", "タップ / SPACE で再開"); break;
+    case "paused":     show("PAUSE", "タップ / SPACE / P で再開"); break;
     case "gameover":   show("GAME OVER", "SCORE " + state.score + "　タップ / SPACE でもう一度"); break;
     case "levelclear": show("LEVEL " + state.level + " CLEAR!", "次のレベルへ"); break;
     default:           el.overlay.classList.add("hidden");
   }
-  const btn = document.getElementById("btnAction");
-  if (btn) btn.textContent = (state.phase === "play") ? "⏸" : "▶";
-}
-
-// ---------------------------------------------------------------- 効果音（WebAudio）
-let audio = null;
-function beep(freq, dur, gain = 0.05, type = "square") {
-  try {
-    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
-    if (audio.state === "suspended") audio.resume();
-    const o = audio.createOscillator(), g = audio.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, audio.currentTime);
-    g.gain.setValueAtTime(gain, audio.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + dur);
-    o.connect(g).connect(audio.destination);
-    o.start();
-    o.stop(audio.currentTime + dur);
-  } catch (e) { /* 音が出せない環境は無視 */ }
+  el.btnAction.textContent = (state.phase === "play") ? "⏸" : "▶";
 }
 
 // ---------------------------------------------------------------- メインループ
-let last = performance.now();
+// 固定タイムステップ（1/120 秒）で更新し、描画はディスプレイのリフレッシュレートに従う
+const STEP = 1 / 120;
+let last = performance.now(), acc = 0;
 function loop(now) {
-  const dt = Math.min((now - last) / 1000, 0.05);
+  const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
-  update(dt);
+  if (!TEST) {
+    acc += dt;
+    while (acc >= STEP) { update(STEP); acc -= STEP; }
+  }
   draw(now / 1000);
   updateHud();
   requestAnimationFrame(loop);
 }
 
+setMuted(state.muted);
 resetLevel();
 setPhase("title");
 updateHud();
 requestAnimationFrame(loop);
+
+// 自動テスト用フック（URL に #test を付けたときだけ公開。通常のゲームループは止まる）
+if (TEST) {
+  window.__pacman = {
+    state, MAZE, STEP, popups,
+    get pac() { return pac; },
+    get ghosts() { return ghosts; },
+    get grid() { return grid; },
+    get fruit() { return fruit; },
+    get frightTimer() { return frightTimer; },
+    set frightTimer(v) { frightTimer = v; },
+    get pelletsLeft() { return pelletsLeft; },
+    set pelletsLeft(v) { pelletsLeft = v; },
+    get totalPellets() { return totalPellets; },
+    update, handleDir, handleAction, handleRestart, setPhase, newGame, resetLevel, actorPos, ghostSpeed,
+    tick(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) update(STEP); },
+  };
+}
 })();
 </script>
 </body>
