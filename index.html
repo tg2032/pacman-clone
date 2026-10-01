@@ -214,6 +214,8 @@
 "use strict";
 
 const TEST = location.hash === "#test";
+// 「視覚効果を減らす」設定の人には、迷路・パワーエサ・イジケ終了の点滅を出さない
+const REDUCE_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // ---------------------------------------------------------------- 安全なストレージ
 // 隔離された iframe などでは localStorage が例外を投げることがある
@@ -530,6 +532,23 @@ function endSwipe(e) {
 wrapEl.addEventListener("pointerup", endSwipe);
 wrapEl.addEventListener("pointercancel", endSwipe);
 
+// ゲームパッド：十字キー/左スティックで移動、A（Start）ボタンでスタート/ポーズ
+const pad = { action: false };
+function pollGamepad() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const p of pads) {
+    if (!p) continue;
+    const btn = i => !!(p.buttons[i] && p.buttons[i].pressed);
+    const ax = p.axes[0] || 0, ay = p.axes[1] || 0;
+    const dir = (btn(12) || ay < -0.5) ? "up" : (btn(13) || ay > 0.5) ? "down"
+              : (btn(14) || ax < -0.5) ? "left" : (btn(15) || ax > 0.5) ? "right" : null;
+    if (dir) handleDir(dir);
+    const action = btn(0) || btn(9);
+    if (action && !pad.action) handleAction();
+    pad.action = action;
+  }
+}
+
 // タブが裏に回ったら自動でポーズ
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && state.phase === "play") setPhase("paused");
@@ -844,7 +863,7 @@ const mazeBlue = makeMazeLayer("#2b4cff");
 const mazeWhite = makeMazeLayer("#ffffff");
 
 function drawPellets(time) {
-  const blink = Math.sin(time * 8) > -0.4;
+  const blink = REDUCE_MOTION || Math.sin(time * 8) > -0.4;
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const t = grid[r][c];
@@ -937,7 +956,7 @@ function drawGhost(g, time) {
   const { x, y } = actorPos(g);
   const R = TILE * 0.46;
   const fright = frightTimer > 0 && g.mode !== "eyes";
-  const flash = fright && frightTimer < 2 && Math.sin(time * 18) > 0;
+  const flash = !REDUCE_MOTION && fright && frightTimer < 2 && Math.sin(time * 18) > 0;
 
   if (g.mode !== "eyes") {
     ctx.fillStyle = fright ? (flash ? "#ffffff" : "#2222dd") : g.color;
@@ -989,7 +1008,7 @@ function drawPopups() {
 function draw(time) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.clearRect(0, 0, W, H);
-  const flashWhite = state.phase === "levelclear" && Math.floor(state.timer * 4) % 2 === 0;
+  const flashWhite = !REDUCE_MOTION && state.phase === "levelclear" && Math.floor(state.timer * 4) % 2 === 0;
   ctx.drawImage(flashWhite ? mazeWhite : mazeBlue, 0, 0, W, H);
   drawPellets(time);
   if (fruit) drawFruit(state.level, FRUIT_POS.x, FRUIT_POS.y);
@@ -1064,6 +1083,7 @@ function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
   if (!TEST) {
+    pollGamepad();
     acc += dt;
     while (acc >= STEP) { update(STEP); acc -= STEP; }
   }
@@ -1091,7 +1111,7 @@ if (TEST) {
     get pelletsLeft() { return pelletsLeft; },
     set pelletsLeft(v) { pelletsLeft = v; },
     get totalPellets() { return totalPellets; },
-    update, handleDir, handleAction, handleRestart, setPhase, newGame, resetLevel, actorPos, ghostSpeed,
+    update, handleDir, handleAction, handleRestart, setPhase, newGame, resetLevel, actorPos, ghostSpeed, pollGamepad,
     tick(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) update(STEP); },
   };
 }

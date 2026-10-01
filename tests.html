@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PAC-MAN 自動テスト</title>
+<style>
+  body { font: 14px/1.6 "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; margin: 24px; background: #0b0b1f; color: #e8e8ff; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  #summary { margin: 0 0 16px; font-weight: 700; }
+  .ok { color: #5be37d; } .ng { color: #ff6b6b; }
+  ul { list-style: none; padding: 0; margin: 0; max-width: 720px; }
+  li { padding: 4px 0; border-bottom: 1px solid #23237a; }
+  small { color: #9c9cc8; display: block; }
+  iframe { position: absolute; left: -9999px; width: 800px; height: 700px; }
+</style>
+</head>
+<body>
+<h1>PAC-MAN 自動テスト</h1>
+<p id="summary">実行中…</p>
+<ul id="list"></ul>
+<iframe id="game" title="テスト対象"></iframe>
+
+<script>
+// index.html を #test モードで読み込み、公開されたフック(window.__pacman)で内部状態を直接検証する。
+// 通常のゲームループは止まり、tick(秒) で時間を決定的に進められる。同一オリジン(http/https)で開くこと。
+const frame = document.getElementById("game");
+const list = document.getElementById("list");
+let passed = 0, failed = 0;
+
+function report(name, ok, detail) {
+  ok ? passed++ : failed++;
+  const li = document.createElement("li");
+  li.innerHTML = `<span class="${ok ? "ok" : "ng"}">${ok ? "PASS" : "FAIL"}</span> ${name}` +
+    (ok || detail === undefined ? "" : `<small>${JSON.stringify(detail)}</small>`);
+  list.appendChild(li);
+}
+
+frame.addEventListener("load", () => {
+  const win = frame.contentWindow;
+  const P = win.__pacman;
+  if (!P) { document.getElementById("summary").textContent = "テストフックが見つかりません（index.html#test を確認）"; return; }
+  const doc = frame.contentDocument;
+  const errors = [];
+  win.addEventListener("error", e => errors.push(e.message));
+
+  const t = (name, fn) => {
+    try { const r = fn(); if (r === true || r === undefined) report(name, true); else report(name, false, r); }
+    catch (e) { report(name, false, String(e)); }
+  };
+  const freshPlay = () => { P.newGame(); P.tick(2.5); P.frightTimer = 0; };
+  const ghostOnPac = g => { g.c = P.pac.c; g.r = P.pac.r; g.prog = P.pac.prog; g.blocked = false; g.mode = "out"; };
+  const isWall = (c, r) => { const ch = (r < 0 || r >= 31) ? "#" : P.MAZE[r][((c % 28) + 28) % 28]; return ch === "#" || ch === "X"; };
+  const place = (c, r, prog, dir) => Object.assign(P.pac, { c, r, prog, dir, want: dir, blocked: false });
+
+  t("タイトルから開始 → READY → プレイ", () => {
+    P.handleAction(); if (P.state.phase !== "ready") return P.state.phase;
+    P.tick(2.5); if (P.state.phase !== "play") return P.state.phase;
+  });
+  t("壁で停止してから曲がれる／エサで加点", () => {
+    P.handleDir("left"); P.tick(1.6);
+    if (!(P.pac.c === 6 && P.pac.r === 23 && P.pac.blocked && P.state.score === 70)) return [P.pac.c, P.pac.r, P.state.score];
+    P.handleDir("up"); P.tick(1.0);
+    if (!(P.pac.r === 16 && P.state.score === 140)) return [P.pac.r, P.state.score];
+  });
+  t("コーナリング猶予：角を0.2マス過ぎても曲がれる", () => {
+    freshPlay(); P.frightTimer = 999; place(6, 5, 0.2, "left"); P.handleDir("down");
+    if (!(P.pac.dir === "down" && P.pac.prog === 0)) return [P.pac.dir, P.pac.prog];
+  });
+  t("コーナリング猶予：0.6マス過ぎたら曲がらず入力を保持", () => {
+    freshPlay(); P.frightTimer = 999; place(6, 5, 0.6, "left"); P.handleDir("down");
+    if (!(P.pac.dir === "left" && P.pac.want === "down")) return [P.pac.dir, P.pac.want];
+  });
+  t("コーナリング猶予：壁の方向には曲がらない", () => {
+    freshPlay(); P.frightTimer = 999; place(7, 5, 0.2, "left"); P.handleDir("up");
+    if (P.pac.dir !== "left") return P.pac.dir;
+  });
+  t("イジケ中にゴーストを食べると +200 とポップアップ", () => {
+    freshPlay(); P.frightTimer = 999; const b = P.ghosts[0]; ghostOnPac(b); const s0 = P.state.score; P.tick(0.05);
+    if (!(b.mode === "eyes" && P.state.score - s0 === 200 && P.popups.length === 1)) return [b.mode, P.state.score - s0];
+  });
+  t("食べられたゴーストは 目玉 → 巣 → 復活 の順で戻る", () => {
+    freshPlay(); P.frightTimer = 999; const b = P.ghosts[0]; ghostOnPac(b); P.tick(0.05);
+    const seq = [b.mode];
+    for (let i = 0; i < 1200 && b.mode !== "out"; i++) { P.tick(0.025); if (seq[seq.length - 1] !== b.mode) seq.push(b.mode); }
+    if (seq.join() !== "eyes,house,out") return seq;
+  });
+  t("コンボ得点は 200→400→800→1600", () => {
+    freshPlay(); P.frightTimer = 999; const got = [];
+    for (let i = 0; i < 4; i++) { const g = P.ghosts[i]; ghostOnPac(g); const s = P.state.score; P.tick(0.05); P.state.freeze = 0; got.push(P.state.score - s); }
+    if (got.join() !== "200,400,800,1600") return got;
+  });
+  t("フルーツ：70個で出現し、取ると100点", () => {
+    freshPlay(); P.pelletsLeft = P.totalPellets - 69; P.tick(0.3); if (!P.fruit) return "not spawned";
+    place(13, 17, 0, "left"); P.frightTimer = 999; const s = P.state.score; P.tick(0.1);
+    if (!(P.state.score - s === 100 && !P.fruit)) return P.state.score - s;
+  });
+  t("フルーツは時間切れで消える", () => {
+    freshPlay(); P.pelletsLeft = P.totalPellets - 69; P.tick(0.3); P.frightTimer = 999; place(6, 5, 0, "right"); P.tick(10);
+    if (P.fruit) return "still there";
+  });
+  t("10000点で1UP（1回だけ）", () => {
+    freshPlay(); P.state.score = 9990; const l0 = P.state.lives; P.pelletsLeft = P.totalPellets - 1; P.tick(0.3);
+    if (P.state.lives - l0 !== 1) return P.state.lives - l0;
+    P.state.score = 30000; P.tick(0.2); if (P.state.lives - l0 !== 1) return "extra life repeated";
+  });
+  t("被弾で残機が減り、READY を経て復帰", () => {
+    freshPlay(); ghostOnPac(P.ghosts[0]); P.tick(0.05); if (P.state.phase !== "dying") return P.state.phase;
+    P.tick(2.0); if (!(P.state.phase === "ready" && P.state.lives === 2)) return [P.state.phase, P.state.lives];
+    P.tick(2.0); if (P.state.phase !== "play") return P.state.phase;
+  });
+  t("残機ゼロでゲームオーバー（ハイスコア更新を表示）→ タップで再開", () => {
+    freshPlay(); P.state.lives = 1; P.state.score = P.state.high + 500; P.state.high = P.state.score;
+    ghostOnPac(P.ghosts[0]); P.tick(0.05); P.tick(2.0);
+    if (P.state.phase !== "gameover") return P.state.phase;
+    const txt = doc.getElementById("ovText").textContent; if (!txt.startsWith("NEW HIGH SCORE")) return txt;
+    P.handleAction(); if (!(P.state.phase === "ready" && P.state.score === 0 && P.state.lives === 3)) return [P.state.phase, P.state.score, P.state.lives];
+  });
+  t("レベルクリアで次のレベルへ（エサが復元される）", () => {
+    freshPlay(); P.pelletsLeft = 1; P.tick(0.5); if (P.state.phase !== "levelclear") return P.state.phase;
+    P.tick(2.2); if (!(P.state.level === 2 && P.pelletsLeft === P.totalPellets)) return [P.state.level, P.pelletsLeft];
+  });
+  t("ゴースト速度：トンネル/イジケで減速、Blinkyは終盤に加速", () => {
+    freshPlay(); const g = P.ghosts[1]; g.mode = "out"; g.r = 5; g.c = 10; P.frightTimer = 0; const normal = P.ghostSpeed(g);
+    g.r = 14; g.c = 2; const tunnel = P.ghostSpeed(g);
+    g.r = 5; g.c = 10; P.frightTimer = 5; const fright = P.ghostSpeed(g); P.frightTimer = 0;
+    const b = P.ghosts[0]; b.mode = "out"; b.r = 5; b.c = 10;
+    P.pelletsLeft = 50; const e0 = P.ghostSpeed(b); P.pelletsLeft = 15; const e1 = P.ghostSpeed(b); P.pelletsLeft = 8; const e2 = P.ghostSpeed(b);
+    if (!(tunnel < normal && fright < normal && e0 < e1 && e1 < e2)) return { normal, tunnel, fright, e0, e1, e2 };
+  });
+  t("ゲームパッド：十字キー/スティックで方向、Aボタンでポーズ切替", () => {
+    freshPlay();
+    let pads = [];
+    Object.defineProperty(win.navigator, "getGamepads", { configurable: true, value: () => pads });
+    const mk = (pressed = [], axes = [0, 0]) => ({ buttons: Array.from({ length: 16 }, (_, i) => ({ pressed: pressed.includes(i) })), axes });
+    pads = [mk([13])]; P.pollGamepad(); if (P.pac.want !== "down") return ["dpad down", P.pac.want];
+    pads = [mk([], [-0.9, 0])]; P.pollGamepad(); if (P.pac.want !== "left") return ["stick left", P.pac.want];
+    pads = [mk([0])]; P.pollGamepad(); if (P.state.phase !== "paused") return ["A pause", P.state.phase];
+    P.pollGamepad(); if (P.state.phase !== "paused") return "held button must not toggle again";
+    pads = [mk([])]; P.pollGamepad(); pads = [mk([9])]; P.pollGamepad(); if (P.state.phase !== "play") return ["Start resume", P.state.phase];
+    pads = [null]; P.pollGamepad();
+  });
+  t("30分相当のランダムプレイで壁抜け・NaN・例外が出ない", () => {
+    const dirs = ["up", "down", "left", "right"]; let walls = 0, nan = 0;
+    P.state.high = 0; P.newGame();
+    for (let i = 0; i < 30 * 60 * 10; i++) {
+      if (i % 3 === 0) P.handleDir(dirs[(Math.random() * 4) | 0]);
+      P.tick(0.1);
+      for (const g of P.ghosts) { if (isWall(g.c, g.r)) walls++; if (!Number.isFinite(g.prog)) nan++; }
+      if (isWall(P.pac.c, P.pac.r)) walls++;
+      if (P.state.phase === "gameover" || P.state.phase === "paused") P.handleAction();
+    }
+    if (walls || nan || errors.length) return { walls, nan, errors };
+  });
+
+  try { win.localStorage.removeItem("pacman-high"); win.localStorage.removeItem("pacman-muted"); } catch (e) { /* 無視 */ }
+  const s = document.getElementById("summary");
+  s.textContent = `${passed + failed} 件中 ${passed} 件成功` + (failed ? `、${failed} 件失敗` : "");
+  s.className = failed ? "ng" : "ok";
+  document.title = (failed ? "FAIL" : "PASS") + " - PAC-MAN 自動テスト";
+});
+
+frame.src = "index.html#test";
+</script>
+</body>
+</html>
