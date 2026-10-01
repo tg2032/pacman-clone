@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#05050f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>パックマン クローン</title>
 <style>
   :root {
@@ -34,9 +37,11 @@
     align-items: center;
     justify-content: center;
     gap: 10px;
-    padding: 12px;
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
     -webkit-user-select: none;
     user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
   }
   header, #hud, #touch { width: var(--w); }
   header {
@@ -101,6 +106,7 @@
     line-height: 1.6;
     font-size: clamp(13px, 3.4vw, 16px);
   }
+  #overlay div { text-wrap: balance; }
   #overlay.hidden { display: none; }
   #overlay .big { font-size: clamp(20px, 6vw, 26px); color: var(--accent); letter-spacing: .1em; }
   #overlay .small { font-size: 12px; opacity: .75; }
@@ -143,6 +149,29 @@
   .tbtn.restart { grid-area: restart; font-size: 16px; opacity: .8; }
 
   @media (max-width: 420px), (pointer: coarse) { footer { display: none; } }
+
+  /* 横向き（高さが低い）画面：盤面を左、情報と十字ボタンを右に並べて高さを使い切る */
+  @media (orientation: landscape) and (max-height: 540px) {
+    :root, .touch { --chrome: 36px; }
+    body {
+      display: grid;
+      grid-template-columns: var(--w) 200px;
+      grid-template-areas: "wrap header" "wrap hud" "wrap touch";
+      grid-template-rows: auto auto 1fr;
+      justify-content: center;
+      align-content: center;
+      column-gap: 18px;
+      row-gap: 8px;
+    }
+    header { grid-area: header; width: auto; }
+    #hud { grid-area: hud; width: auto; flex-direction: column; align-items: flex-start; gap: 4px; }
+    #lives { justify-content: flex-start; }
+    #wrap { grid-area: wrap; align-self: center; }
+    #touch { grid-area: touch; width: auto; align-self: center; }
+    #dpad { grid-template-columns: repeat(3, 46px); grid-template-rows: repeat(3, 46px); gap: 6px; }
+    .tbtn { font-size: 18px; }
+    footer { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -273,6 +302,7 @@ const FRUIT_SPAWN_AT = [70, 170];    // 食べたエサの数
 const FRUIT_POINTS = [100, 300, 500, 500, 700, 700, 1000, 1000, 2000, 2000, 3000, 3000, 5000];
 const EXTRA_LIFE_AT = 10000;
 const ELROY_AT = 20;
+const CORNER_SLACK = 0.3;            // 角を通り過ぎてからも曲がれる猶予（タイル単位）
 
 const state = {
   score: 0,
@@ -285,6 +315,7 @@ const state = {
   ghostCombo: 0,
   extraLife: false,
   muted: store.get("pacman-muted", "0") === "1",
+  startHigh: 0,
 };
 
 let grid, pelletsLeft, totalPellets, fruit, fruitSpawned;
@@ -341,6 +372,7 @@ function newGame() {
   state.lives = 3;
   state.ghostCombo = 0;
   state.extraLife = false;
+  state.startHigh = state.high;
   resetLevel();
   setPhase("ready", 2.2);
   sfx.start();
@@ -350,6 +382,22 @@ function setPhase(p, seconds = 0) {
   state.phase = p;
   state.timer = seconds;
   updateOverlay();
+  setWakeLock(p === "ready" || p === "play" || p === "dying" || p === "levelclear");
+}
+
+// プレイ中はスマホの画面が暗くならないようにする（非対応環境では何もしない）
+let wakeLock = null;
+async function setWakeLock(on) {
+  try {
+    if (on && !wakeLock && navigator.wakeLock) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } else if (!on && wakeLock) {
+      const lock = wakeLock;
+      wakeLock = null;
+      await lock.release();
+    }
+  } catch (e) { wakeLock = null; }
 }
 
 // ---------------------------------------------------------------- 効果音（WebAudio）
@@ -406,8 +454,14 @@ function setMuted(m) {
 // どこから来ても同じ処理を通す。
 function handleDir(dir) {
   pac.want = dir;
+  if (state.phase !== "play") return;
   // 逆方向は通路の途中でも即座に反転できる
-  if (dir === OPPOSITE[pac.dir] && state.phase === "play") reverse(pac);
+  if (dir === OPPOSITE[pac.dir]) { reverse(pac); return; }
+  // 曲がり角を少し通り過ぎた直後でも、入力を受け付けて角に戻って曲がる（コーナリング猶予）
+  if (dir !== pac.dir && !pac.blocked && pac.prog > 0 && pac.prog <= CORNER_SLACK) {
+    const d = DIRS[dir];
+    if (!isWall(pac.c + d.x, pac.r + d.y, false)) { pac.prog = 0; pac.dir = dir; }
+  }
 }
 function handleAction() {
   if (state.phase === "title" || state.phase === "gameover") newGame();
@@ -437,7 +491,8 @@ addEventListener("keydown", e => {
   else if (e.code === "KeyP" || k === "p") handlePause();
   else if (e.code === "KeyM" || k === "m") setMuted(!state.muted);
 });
-addEventListener("pointerdown", ensureAudio, { capture: true });
+// iOS Safari は pointerdown では音声が解除されないことがあるため、touchend / click でも試す
+for (const type of ["pointerdown", "touchend", "click"]) addEventListener(type, ensureAudio, { capture: true });
 
 // ---------------------------------------------------------------- タッチ操作（スマホ対応）
 addEventListener("touchstart", () => document.documentElement.classList.add("touch"), { once: true, passive: true });
@@ -975,18 +1030,26 @@ function updateHud() {
   }
 }
 
+const HINT_KEYS = "矢印キー / WASD で移動　P：ポーズ　R：リスタート　M：ミュート";
+const HINT_TOUCH = "スワイプ / 十字ボタンで移動　⟳：リスタート";
 function updateOverlay() {
-  const show = (title, text, hint = false) => {
+  const show = (title, text, hint = "") => {
     el.overlay.classList.remove("hidden");
     el.ovTitle.textContent = title;
     el.ovText.textContent = text;
+    el.ovHint.textContent = hint;
     el.ovHint.style.display = hint ? "" : "none";
   };
+  const touch = matchMedia("(pointer: coarse)").matches || document.documentElement.classList.contains("touch");
   switch (state.phase) {
-    case "title":      show("PAC-MAN", "タップ / SPACE でスタート", true); break;
+    case "title":      show("PAC-MAN", "タップ / SPACE でスタート", touch ? HINT_TOUCH : HINT_KEYS); break;
     case "ready":      show("READY!", state.lives + " 機のこり"); break;
     case "paused":     show("PAUSE", "タップ / SPACE / P で再開"); break;
-    case "gameover":   show("GAME OVER", "SCORE " + state.score + "　タップ / SPACE でもう一度"); break;
+    case "gameover": {
+      const record = state.score > state.startHigh;
+      show("GAME OVER", (record ? "NEW HIGH SCORE  " : "SCORE ") + state.score, "タップ / SPACE でもう一度");
+      break;
+    }
     case "levelclear": show("LEVEL " + state.level + " CLEAR!", "次のレベルへ"); break;
     default:           el.overlay.classList.add("hidden");
   }
