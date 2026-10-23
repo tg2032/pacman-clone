@@ -140,6 +140,23 @@ frame.addEventListener("load", () => {
     pads = [mk([])]; P.pollGamepad(); pads = [mk([9])]; P.pollGamepad(); if (P.state.phase !== "play") return ["Start resume", P.state.phase];
     pads = [null]; P.pollGamepad();
   });
+  t("ウィンドウがフォーカスを失うとポーズする（ポーズ中は進まない）", () => {
+    freshPlay(); win.dispatchEvent(new win.Event("blur"));
+    if (P.state.phase !== "paused") return P.state.phase;
+    const s = P.state.score, c = P.pac.c; P.tick(2); if (P.state.score !== s || P.pac.c !== c) return "game advanced while paused";
+    P.handleAction(); if (P.state.phase !== "play") return P.state.phase;
+    P.state.phase = "title"; win.dispatchEvent(new win.Event("blur")); if (P.state.phase !== "title") return "blur must not change non-play phases";
+  });
+  t("ストレージが使えない環境でもゲームが動く（保存が例外を投げても続行）", () => {
+    const proto = win.Storage.prototype, getI = proto.getItem, setI = proto.setItem;
+    proto.getItem = () => { throw new Error("denied"); }; proto.setItem = () => { throw new Error("denied"); };
+    try {
+      if (P.store.get("pacman-high", 7) !== 7) return "get must return fallback";
+      freshPlay(); P.state.high = 0; P.pelletsLeft = P.totalPellets - 1;
+      P.handleDir("left"); P.tick(0.6);                      // エサを食べて加点 → ハイスコア保存を試みる
+      if (!(P.state.score > 0 && P.state.high === P.state.score && P.state.phase !== "paused")) return [P.state.score, P.state.high];
+    } finally { proto.getItem = getI; proto.setItem = setI; }
+  });
   t("迷路：パックマンの初期位置から全エサに到達できる（左右ワープ含む）", () => {
     freshPlay();
     const seen = new Set([P.pac.c + "," + P.pac.r]); const q = [[P.pac.c, P.pac.r]];

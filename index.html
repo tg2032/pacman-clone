@@ -554,6 +554,8 @@ function pollGamepad() {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && state.phase === "play") setPhase("paused");
 });
+// 別のウィンドウやアドレスバーに操作が移った場合もポーズ
+addEventListener("blur", () => { if (state.phase === "play") setPhase("paused"); });
 
 // ---------------------------------------------------------------- 移動処理
 // 各キャラは「タイル(c,r) + 進行度 prog(0..1)」で位置を持ち、
@@ -1102,7 +1104,7 @@ requestAnimationFrame(loop);
 // 自動テスト用フック（URL に #test を付けたときだけ公開。通常のゲームループは止まる）
 if (TEST) {
   window.__pacman = {
-    state, MAZE, STEP, popups,
+    state, MAZE, STEP, popups, store,
     get pac() { return pac; },
     get ghosts() { return ghosts; },
     get grid() { return grid; },
