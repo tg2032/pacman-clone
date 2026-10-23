@@ -140,6 +140,39 @@ frame.addEventListener("load", () => {
     pads = [mk([])]; P.pollGamepad(); pads = [mk([9])]; P.pollGamepad(); if (P.state.phase !== "play") return ["Start resume", P.state.phase];
     pads = [null]; P.pollGamepad();
   });
+  t("迷路：パックマンの初期位置から全エサに到達できる（左右ワープ含む）", () => {
+    freshPlay();
+    const seen = new Set([P.pac.c + "," + P.pac.r]); const q = [[P.pac.c, P.pac.r]];
+    while (q.length) {
+      const [c, r] = q.shift();
+      for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nc = ((c + dc) % 28 + 28) % 28, nr = r + dr;
+        if (nr < 0 || nr >= 31 || P.MAZE[nr][nc] === "#" || P.MAZE[nr][nc] === "X" || P.MAZE[nr][nc] === "-") continue;
+        const k = nc + "," + nr; if (!seen.has(k)) { seen.add(k); q.push([nc, nr]); }
+      }
+    }
+    const missing = []; let pellets = 0;
+    for (let r = 0; r < 31; r++) for (let c = 0; c < 28; c++) if (P.MAZE[r][c] === "." || P.MAZE[r][c] === "o") { pellets++; if (!seen.has(c + "," + r)) missing.push([c, r]); }
+    if (missing.length || pellets !== P.totalPellets) return { missing, pellets, total: P.totalPellets };
+  });
+  t("ゴーストが固まらない：プレイ中は全員が常に動き続ける（5分相当×3回）", () => {
+    const stuck = [];
+    for (let round = 0; round < 3; round++) {
+      freshPlay(); P.frightTimer = round === 2 ? 999 : 0;   // 3回目はイジケ(ランダム移動)状態
+      const last = P.ghosts.map(g => ({ k: "", t: 0 }));
+      for (let i = 0; i < 300 * 10; i++) {
+        P.pac.c = 13; P.pac.r = 23; P.pac.prog = 0;          // パックマンは動かさず(被弾しないよう)ゴーストだけ観察
+        if (P.state.phase !== "play") P.state.phase = "play";
+        P.tick(0.1);
+        P.ghosts.forEach((g, n) => {
+          const k = [g.c, g.r, g.prog.toFixed(2), g.mode].join();
+          if (k !== last[n].k) { last[n].k = k; last[n].t = i; }
+          else if (i - last[n].t > 20 && g.mode !== "house") stuck.push({ ghost: g.name, c: g.c, r: g.r, mode: g.mode, round });
+        });
+      }
+    }
+    if (stuck.length) return stuck.slice(0, 3);
+  });
   t("30分相当のランダムプレイで壁抜け・NaN・例外が出ない", () => {
     const dirs = ["up", "down", "left", "right"]; let walls = 0, nan = 0;
     P.state.high = 0; P.newGame();
