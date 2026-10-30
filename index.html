@@ -111,6 +111,20 @@
   #overlay.hidden { display: none; }
   #overlay .big { font-size: clamp(20px, 6vw, 26px); color: var(--accent); letter-spacing: .1em; }
   #overlay .small { font-size: 12px; opacity: .75; }
+  #diffPick { display: flex; gap: 8px; margin: 4px 0; }
+  .dbtn {
+    border: 1px solid #2b4cff88;
+    background: var(--panel);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 13px;
+    letter-spacing: .08em;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .dbtn[aria-pressed="true"] { background: var(--accent); color: #1a1500; border-color: var(--accent); font-weight: 700; }
   footer { font-size: 12px; opacity: .6; text-align: center; max-width: var(--w); }
 
   #touch { display: none; justify-content: center; }
@@ -193,6 +207,11 @@
   <div id="overlay" aria-live="polite">
     <div class="big" id="ovTitle">READY?</div>
     <div id="ovText">タップ / SPACE でスタート</div>
+    <div id="diffPick" role="group" aria-label="難易度">
+      <button class="dbtn" data-diff="easy" aria-pressed="false">EASY</button>
+      <button class="dbtn" data-diff="normal" aria-pressed="true">NORMAL</button>
+      <button class="dbtn" data-diff="hard" aria-pressed="false">HARD</button>
+    </div>
     <div class="small" id="ovHint">矢印キー / WASD / スワイプで移動　P：ポーズ　R：リスタート　M：ミュート</div>
   </div>
 </div>
@@ -307,9 +326,19 @@ const EXTRA_LIFE_AT = 10000;
 const ELROY_AT = 20;
 const CORNER_SLACK = 0.3;            // 角を通り過ぎてからも曲がれる猶予（タイル単位）
 
+// 難易度：残機・ゴーストの速さ(倍率)・パワーエサの効果時間(秒)が変わる。ハイスコアは難易度別に保存
+const DIFFS = {
+  easy:   { label: "EASY",   lives: 5, speed: 0.85, fright: 10 },
+  normal: { label: "NORMAL", lives: 3, speed: 1,    fright: 8 },
+  hard:   { label: "HARD",   lives: 2, speed: 1.12, fright: 5 },
+};
+const highKey = d => d === "normal" ? "pacman-high" : "pacman-high-" + d;
+const INIT_DIFF = DIFFS[store.get("pacman-diff", "normal")] ? store.get("pacman-diff", "normal") : "normal";
+
 const state = {
   score: 0,
-  high: Number(store.get("pacman-high", 0)) || 0,
+  difficulty: INIT_DIFF,
+  high: Number(store.get(highKey(INIT_DIFF), 0)) || 0,
   level: 1,
   lives: 3,
   phase: "title",   // title | ready | play | dying | levelclear | gameover | paused
@@ -372,7 +401,7 @@ function resetLevel() {
 function newGame() {
   state.score = 0;
   state.level = 1;
-  state.lives = 3;
+  state.lives = DIFFS[state.difficulty].lives;
   state.ghostCombo = 0;
   state.extraLife = false;
   state.startHigh = state.high;
@@ -472,6 +501,14 @@ function handleAction() {
   else if (state.phase === "paused") setPhase("play");
 }
 function handleRestart() { newGame(); }
+// 難易度はスタート前（タイトル／ゲームオーバー）だけ変更できる
+function setDifficulty(d) {
+  if (!DIFFS[d] || (state.phase !== "title" && state.phase !== "gameover")) return;
+  state.difficulty = d;
+  store.set("pacman-diff", d);
+  state.high = Number(store.get(highKey(d), 0)) || 0;
+  updateOverlay();
+}
 function handlePause() {
   if (state.phase === "play") setPhase("paused");
   else if (state.phase === "paused") setPhase("play");
@@ -493,6 +530,9 @@ addEventListener("keydown", e => {
   else if (e.code === "KeyR" || k === "r") handleRestart();
   else if (e.code === "KeyP" || k === "p") handlePause();
   else if (e.code === "KeyM" || k === "m") setMuted(!state.muted);
+  else if (e.code === "Digit1" || e.code === "Numpad1" || k === "1") setDifficulty("easy");
+  else if (e.code === "Digit2" || e.code === "Numpad2" || k === "2") setDifficulty("normal");
+  else if (e.code === "Digit3" || e.code === "Numpad3" || k === "3") setDifficulty("hard");
 });
 // iOS Safari は pointerdown では音声が解除されないことがあるため、touchend / click でも試す
 for (const type of ["pointerdown", "touchend", "click"]) addEventListener(type, ensureAudio, { capture: true });
@@ -506,6 +546,11 @@ document.querySelectorAll("#dpad [data-dir]").forEach(btn => {
 document.getElementById("btnAction").addEventListener("pointerdown", e => { e.preventDefault(); handleAction(); });
 document.getElementById("btnRestart").addEventListener("pointerdown", e => { e.preventDefault(); handleRestart(); });
 document.getElementById("btnMute").addEventListener("click", () => setMuted(!state.muted));
+// 難易度ボタン：盤面側のスワイプ/タップ処理(=スタート)に伝わらないよう止める
+document.querySelectorAll("#diffPick [data-diff]").forEach(b => {
+  b.addEventListener("pointerdown", e => e.stopPropagation());
+  b.addEventListener("click", () => setDifficulty(b.dataset.diff));
+});
 
 // 盤面上のスワイプ：指が一定距離動いた瞬間に方向転換し、起点を更新して連続入力も可能。
 // ほぼ動かさずに離した場合はタップ＝スタート/ポーズ。
@@ -607,7 +652,7 @@ function pacArrive() {
     grid[pac.r][pac.c] = " ";
     pelletsLeft--;
     addScore(50);
-    frightTimer = Math.max(2, 8 - (state.level - 1) * 0.6);
+    frightTimer = Math.max(2, DIFFS[state.difficulty].fright - (state.level - 1) * 0.6);
     state.ghostCombo = 0;
     for (const g of ghosts) if (g.mode === "out") reverse(g);
     sfx.power();
@@ -688,7 +733,7 @@ function chooseGhostDir(g) {
 }
 
 function ghostSpeed(g) {
-  const base = Math.min(6.2 + (state.level - 1) * 0.25, 9);
+  const base = Math.min(6.2 + (state.level - 1) * 0.25, 9) * DIFFS[state.difficulty].speed;
   if (g.mode === "eyes") return 15;
   if (g.mode === "house") return 4;
   let s = base;
@@ -703,7 +748,7 @@ function addScore(n) {
   state.score += n;
   if (state.score > state.high) {
     state.high = state.score;
-    store.set("pacman-high", state.high);
+    store.set(highKey(state.difficulty), state.high);
   }
   if (!state.extraLife && state.score >= EXTRA_LIFE_AT) {
     state.extraLife = true;
@@ -1034,6 +1079,7 @@ const el = {
   ovText: document.getElementById("ovText"),
   ovHint: document.getElementById("ovHint"),
   btnAction: document.getElementById("btnAction"),
+  diffPick: document.getElementById("diffPick"),
 };
 const hudCache = {};
 function setText(node, key, value) {
@@ -1055,7 +1101,7 @@ function updateHud() {
   }
 }
 
-const HINT_KEYS = "矢印キー / WASD で移動　P：ポーズ　R：リスタート　M：ミュート";
+const HINT_KEYS = "矢印キー / WASD で移動　P：ポーズ　R：リスタート　M：ミュート　1/2/3：難易度";
 const HINT_TOUCH = "スワイプ / 十字ボタンで移動　⟳：リスタート";
 function updateOverlay() {
   const show = (title, text, hint = "") => {
@@ -1068,7 +1114,7 @@ function updateOverlay() {
   const touch = matchMedia("(pointer: coarse)").matches || document.documentElement.classList.contains("touch");
   switch (state.phase) {
     case "title":      show("PAC-MAN", "タップ / SPACE でスタート", touch ? HINT_TOUCH : HINT_KEYS); break;
-    case "ready":      show("READY!", state.lives + " 機のこり"); break;
+    case "ready":      show("READY!", DIFFS[state.difficulty].label + "　" + state.lives + " 機のこり"); break;
     case "paused":     show("PAUSE", "タップ / SPACE / P で再開"); break;
     case "gameover": {
       const record = state.score > state.startHigh;
@@ -1079,6 +1125,8 @@ function updateOverlay() {
     default:           el.overlay.classList.add("hidden");
   }
   el.btnAction.textContent = (state.phase === "play") ? "⏸" : "▶";
+  el.diffPick.style.display = (state.phase === "title" || state.phase === "gameover") ? "" : "none";
+  el.diffPick.querySelectorAll("[data-diff]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.diff === state.difficulty)));
 }
 
 // ---------------------------------------------------------------- メインループ
@@ -1117,7 +1165,7 @@ if (TEST) {
     get pelletsLeft() { return pelletsLeft; },
     set pelletsLeft(v) { pelletsLeft = v; },
     get totalPellets() { return totalPellets; },
-    draw, DPR, update, handleDir, handleAction, handleRestart, setPhase, newGame, resetLevel, actorPos, ghostSpeed, pollGamepad,
+    draw, DPR, DIFFS, setDifficulty, update, handleDir, handleAction, handleRestart, setPhase, newGame, resetLevel, actorPos, ghostSpeed, pollGamepad,
     tick(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) update(STEP); },
   };
 }

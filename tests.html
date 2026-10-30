@@ -96,7 +96,8 @@ frame.addEventListener("load", () => {
     if (!(P.state.score - s === 100 && !P.fruit)) return P.state.score - s;
   });
   t("フルーツは時間切れで消える", () => {
-    freshPlay(); P.pelletsLeft = P.totalPellets - 69; P.tick(0.3); P.frightTimer = 999; place(6, 5, 0, "right"); P.tick(10);
+    freshPlay(); P.ghosts.forEach(g => { g.mode = "house"; g.release = 9999; });   // ゴーストを巣に留め、撃破の停止でタイマーが止まらないようにする
+    P.pelletsLeft = P.totalPellets - 69; P.tick(0.3); if (!P.fruit) return "not spawned"; place(6, 5, 0, "right"); P.tick(10);
     if (P.fruit) return "still there";
   });
   t("10000点で1UP（1回だけ）", () => {
@@ -172,6 +173,43 @@ frame.addEventListener("load", () => {
     const left2 = yellow(0, 20), right2 = yellow(540, 560);
     if (!(right > 20 && left > 20 && left2 > 20 && right2 > 20)) return { right, left, left2, right2 };
   });
+  const toNormal = () => { P.setPhase("title"); P.setDifficulty("normal"); };
+  t("難易度：残機・ゴースト速度・パワーエサ時間が EASY < NORMAL < HARD の順に厳しくなる", () => {
+    const r = {};
+    for (const d of ["easy", "normal", "hard"]) {
+      P.setPhase("title"); P.setDifficulty(d); P.newGame(); P.tick(2.5);
+      const lives = P.state.lives; const g = P.ghosts[1]; g.mode = "out"; g.r = 5; g.c = 10; P.frightTimer = 0; const speed = P.ghostSpeed(g);
+      place(1, 4, 0, "up"); P.tick(0.3);                           // パワーエサ(1,3)を食べる
+      r[d] = { lives, speed: +speed.toFixed(2), fright: +P.frightTimer.toFixed(1) };
+    }
+    toNormal();
+    const ok = r.easy.lives > r.normal.lives && r.normal.lives > r.hard.lives
+      && r.easy.speed < r.normal.speed && r.normal.speed < r.hard.speed
+      && r.easy.fright > r.normal.fright && r.normal.fright > r.hard.fright
+      && r.normal.lives === 3 && r.normal.speed === 6.2;
+    if (!ok) return r;
+  });
+  t("難易度：ハイスコアは難易度ごとに別々に保存・表示される", () => {
+    const ls = win.localStorage; ls.removeItem("pacman-high"); ls.setItem("pacman-high-hard", "123"); ls.setItem("pacman-high-easy", "77");
+    P.setPhase("title"); ls.setItem("pacman-high", "45");
+    P.setDifficulty("hard"); const h = P.state.high;
+    P.setDifficulty("easy"); const e = P.state.high;
+    P.setDifficulty("normal"); const n = P.state.high;
+    ls.removeItem("pacman-high-hard"); ls.removeItem("pacman-high-easy"); ls.removeItem("pacman-high");
+    if (!(h === 123 && e === 77 && n === 45)) return { h, e, n };
+  });
+  t("難易度：プレイ中は変更できず、タイトルでは 1/2/3 キーとボタンで変更できる", () => {
+    freshPlay(); P.setDifficulty("hard"); if (P.state.difficulty !== "normal") return "changed during play";
+    P.setPhase("title");
+    win.dispatchEvent(new win.KeyboardEvent("keydown", { code: "Digit3", key: "3" })); if (P.state.difficulty !== "hard") return ["key 3", P.state.difficulty];
+    win.dispatchEvent(new win.KeyboardEvent("keydown", { code: "Digit1", key: "1" })); if (P.state.difficulty !== "easy") return ["key 1", P.state.difficulty];
+    doc.querySelector('#diffPick [data-diff="normal"]').click(); if (P.state.difficulty !== "normal") return ["button", P.state.difficulty];
+    const pressed = [...doc.querySelectorAll("#diffPick [data-diff]")].map(b => b.getAttribute("aria-pressed")).join();
+    if (pressed !== "false,true,false") return pressed;
+    P.setPhase("gameover"); if (doc.getElementById("diffPick").style.display === "none") return "picker hidden on gameover";
+    P.setPhase("play"); if (doc.getElementById("diffPick").style.display !== "none") return "picker visible during play";
+    toNormal();
+  });
   t("迷路：パックマンの初期位置から全エサに到達できる（左右ワープ含む）", () => {
     freshPlay();
     const seen = new Set([P.pac.c + "," + P.pac.r]); const q = [[P.pac.c, P.pac.r]];
@@ -218,7 +256,7 @@ frame.addEventListener("load", () => {
     if (walls || nan || errors.length) return { walls, nan, errors };
   });
 
-  try { win.localStorage.removeItem("pacman-high"); win.localStorage.removeItem("pacman-muted"); } catch (e) { /* 無視 */ }
+  try { for (const k of ["pacman-high", "pacman-high-easy", "pacman-high-hard", "pacman-diff", "pacman-muted"]) win.localStorage.removeItem(k); } catch (e) { /* 無視 */ }
   const s = document.getElementById("summary");
   s.textContent = `${passed + failed} 件中 ${passed} 件成功` + (failed ? `、${failed} 件失敗` : "");
   s.className = failed ? "ng" : "ok";
