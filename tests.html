@@ -157,6 +157,21 @@ frame.addEventListener("load", () => {
       if (!(P.state.score > 0 && P.state.high === P.state.score && P.state.phase !== "paused")) return [P.state.score, P.state.high];
     } finally { proto.getItem = getI; proto.setItem = setI; }
   });
+  t("ワープ通路：端にまたがるパックマンが反対側にも描かれる（画素で確認）", () => {
+    freshPlay(); P.frightTimer = 999;
+    for (const g of P.ghosts) { g.c = 13; g.r = 5; }             // ゴーストは端から遠ざける
+    const cv = doc.getElementById("game"), cx = cv.getContext("2d"), D = P.DPR;
+    const yellow = (x0, x1) => {                                  // パックマンの黄色(255,225,53)の画素数
+      const d = cx.getImageData(Math.round(x0 * D), Math.round(14 * 20 * D), Math.round((x1 - x0) * D), Math.round(20 * D)).data; let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] > 240 && d[i + 1] > 200 && d[i + 1] < 245 && d[i + 2] < 90) n++;
+      return n;
+    };
+    place(27, 14, 0.5, "right"); P.pac.mouth = 0; P.draw(0);      // 右端ちょうどに中心
+    const right = yellow(540, 560), left = yellow(0, 20);
+    place(0, 14, 0, "left"); P.pac.prog = 0.5; P.draw(0);         // 左端から出ていく途中
+    const left2 = yellow(0, 20), right2 = yellow(540, 560);
+    if (!(right > 20 && left > 20 && left2 > 20 && right2 > 20)) return { right, left, left2, right2 };
+  });
   t("迷路：パックマンの初期位置から全エサに到達できる（左右ワープ含む）", () => {
     freshPlay();
     const seen = new Set([P.pac.c + "," + P.pac.r]); const q = [[P.pac.c, P.pac.r]];

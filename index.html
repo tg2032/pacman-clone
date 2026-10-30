@@ -1015,8 +1015,11 @@ function draw(time) {
   ctx.drawImage(flashWhite ? mazeWhite : mazeBlue, 0, 0, W, H);
   drawPellets(time);
   if (fruit) drawFruit(state.level, FRUIT_POS.x, FRUIT_POS.y);
-  drawPac();
-  if (state.phase !== "dying" && state.phase !== "levelclear") for (const g of ghosts) drawGhost(g, time);
+  // 左右のワープ通路で端にまたがるキャラは、反対側にも同じ姿を描いて途切れさせない
+  const copies = a => { const x = actorPos(a).x; return x < TILE ? [0, W] : x > W - TILE ? [0, -W] : [0]; };
+  const drawAt = (a, fn) => { for (const dx of copies(a)) { ctx.save(); ctx.translate(dx, 0); fn(); ctx.restore(); } };
+  drawAt(pac, drawPac);
+  if (state.phase !== "dying" && state.phase !== "levelclear") for (const g of ghosts) drawAt(g, () => drawGhost(g, time));
   drawPopups();
 }
 
@@ -1114,7 +1117,7 @@ if (TEST) {
     get pelletsLeft() { return pelletsLeft; },
     set pelletsLeft(v) { pelletsLeft = v; },
     get totalPellets() { return totalPellets; },
-    update, handleDir, handleAction, handleRestart, setPhase, newGame, resetLevel, actorPos, ghostSpeed, pollGamepad,
+    draw, DPR, update, handleDir, handleAction, handleRestart, setPhase, newGame, resetLevel, actorPos, ghostSpeed, pollGamepad,
     tick(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) update(STEP); },
   };
 }
