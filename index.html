@@ -256,7 +256,7 @@ const store = {
 
 // ---------------------------------------------------------------- 迷路データ
 // # 壁 / X 表示しない壁 / . エサ / o パワーエサ / - ゴーストの巣の扉 / 空白 通路
-const MAZE = [
+const MAZE1 = [
   "############################",
   "#............##............#",
   "#.####.#####.##.#####.####.#",
@@ -289,6 +289,16 @@ const MAZE = [
   "#..........................#",
   "############################",
 ];
+
+// 2つ目の迷路：巣の周り(9〜19行)は同じで、上下の通路の形だけ変えてある。奇数レベルが迷路1、偶数レベルが迷路2
+const MAZE2 = MAZE1.slice();
+MAZE2[2] = "#.###.######.##.######.###.#"; MAZE2[3] = "#o###.######.##.######.###o#"; MAZE2[4] = MAZE2[2];
+MAZE2[6] = "#.##.####.########.####.##.#"; MAZE2[7] = MAZE2[6];
+MAZE2[21] = "#.##.#######.##.#######.##.#"; MAZE2[22] = MAZE2[21];
+MAZE2[23] = "#o" + ".".repeat(24) + "o#";
+const MAZES = [MAZE1, MAZE2];
+let MAZE = MAZE1;                    // 現在のレベルの迷路（resetLevel で切り替える）
+let mazeIdx = 0;
 
 const COLS = 28, ROWS = 31, TILE = 20;
 const W = COLS * TILE, H = ROWS * TILE;
@@ -396,6 +406,8 @@ function resetActors() {
 }
 
 function resetLevel() {
+  mazeIdx = (state.level - 1) % MAZES.length;
+  MAZE = MAZES[mazeIdx];
   grid = MAZE.map(row => row.split(""));
   pelletsLeft = 0;
   for (const row of grid) for (const ch of row) if (ch === "." || ch === "o") pelletsLeft++;
@@ -910,7 +922,7 @@ function update(dt) {
 
 // ---------------------------------------------------------------- 描画
 // 迷路は変化しないので、オフスクリーンに一度だけ描いて毎フレーム貼り付ける
-function makeMazeLayer(color) {
+function makeMazeLayer(maze, color) {
   const layer = document.createElement("canvas");
   layer.width = canvas.width;
   layer.height = canvas.height;
@@ -921,10 +933,11 @@ function makeMazeLayer(color) {
   g.lineCap = "round";
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-      if (MAZE[r][c] !== "#") continue;
+      if (maze[r][c] !== "#") continue;
       const x = c * TILE, y = r * TILE;
       const open = (dc, dr) => {
-        const n = tileAt(c + dc, r + dr);
+        const rr = r + dr;
+        const n = rr < 0 || rr >= ROWS ? "#" : maze[rr][wrapCol(c + dc)];
         return n !== "#" && n !== "X";
       };
       g.beginPath();
@@ -939,7 +952,7 @@ function makeMazeLayer(color) {
   g.lineWidth = 3;
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-      if (MAZE[r][c] !== "-") continue;
+      if (maze[r][c] !== "-") continue;
       g.beginPath();
       g.moveTo(c * TILE, r * TILE + TILE / 2);
       g.lineTo(c * TILE + TILE, r * TILE + TILE / 2);
@@ -948,8 +961,7 @@ function makeMazeLayer(color) {
   }
   return layer;
 }
-const mazeBlue = makeMazeLayer("#2b4cff");
-const mazeWhite = makeMazeLayer("#ffffff");
+const mazeLayers = MAZES.map(m => ({ blue: makeMazeLayer(m, "#2b4cff"), white: makeMazeLayer(m, "#ffffff") }));
 
 function drawPellets(time) {
   const blink = REDUCE_MOTION || Math.sin(time * 8) > -0.4;
@@ -1098,7 +1110,7 @@ function draw(time) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.clearRect(0, 0, W, H);
   const flashWhite = !REDUCE_MOTION && state.phase === "levelclear" && Math.floor(state.timer * 4) % 2 === 0;
-  ctx.drawImage(flashWhite ? mazeWhite : mazeBlue, 0, 0, W, H);
+  ctx.drawImage(flashWhite ? mazeLayers[mazeIdx].white : mazeLayers[mazeIdx].blue, 0, 0, W, H);
   drawPellets(time);
   if (fruit) drawFruit(state.level, FRUIT_POS.x, FRUIT_POS.y);
   // 左右のワープ通路で端にまたがるキャラは、反対側にも同じ姿を描いて途切れさせない
@@ -1198,7 +1210,8 @@ requestAnimationFrame(loop);
 // 自動テスト用フック（URL に #test を付けたときだけ公開。通常のゲームループは止まる）
 if (TEST) {
   window.__pacman = {
-    state, MAZE, STEP, popups, store,
+    state, MAZES, STEP, popups, store,
+    get MAZE() { return MAZE; },
     get pac() { return pac; },
     get ghosts() { return ghosts; },
     get grid() { return grid; },

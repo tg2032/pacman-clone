@@ -267,20 +267,48 @@ frame.addEventListener("load", () => {
     P.setPhase("play"); if (doc.getElementById("rank").style.display !== "none") return "ranking visible during play";
     clearRank(); toNormal();
   });
-  t("迷路：パックマンの初期位置から全エサに到達できる（左右ワープ含む）", () => {
-    freshPlay();
-    const seen = new Set([P.pac.c + "," + P.pac.r]); const q = [[P.pac.c, P.pac.r]];
-    while (q.length) {
-      const [c, r] = q.shift();
-      for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const nc = ((c + dc) % 28 + 28) % 28, nr = r + dr;
-        if (nr < 0 || nr >= 31 || P.MAZE[nr][nc] === "#" || P.MAZE[nr][nc] === "X" || P.MAZE[nr][nc] === "-") continue;
-        const k = nc + "," + nr; if (!seen.has(k)) { seen.add(k); q.push([nc, nr]); }
+  t("迷路：全ての迷路で、初期位置から全エサに到達でき（ワープ含む）、行き止まりがない", () => {
+    const res = [];
+    P.MAZES.forEach((M, idx) => {
+      const cell = (c, r) => (r < 0 || r >= 31) ? "#" : M[r][((c % 28) + 28) % 28];
+      const walk = (c, r) => !"#X-".includes(cell(c, r));
+      const seen = new Set(["13,23"]); const q = [[13, 23]];
+      if (!walk(13, 23)) res.push({ maze: idx, why: "start blocked" });
+      while (q.length) {
+        const [c, r] = q.shift();
+        for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nc = ((c + dc) % 28 + 28) % 28, nr = r + dr;
+          if (nr < 0 || nr >= 31 || !walk(nc, nr)) continue;
+          const k = nc + "," + nr; if (!seen.has(k)) { seen.add(k); q.push([nc, nr]); }
+        }
       }
+      const missing = []; let pellets = 0, power = 0, dead = [];
+      for (let r = 0; r < 31; r++) for (let c = 0; c < 28; c++) {
+        const ch = M[r][c];
+        if (ch === "." || ch === "o") { pellets++; if (ch === "o") power++; if (!seen.has(c + "," + r)) missing.push([c, r]); }
+        const inHouse = r >= 9 && r <= 19 && c >= 8 && c <= 19;
+        if (".o ".includes(ch) && r !== 14 && !inHouse) {
+          const n = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dc, dr]) => walk(c + dc, r + dr)).length;
+          if (n <= 1) dead.push([c, r]);
+        }
+      }
+      if (missing.length || dead.length || power !== 4) res.push({ maze: idx, missing, dead, power });
+      if (M.length !== 31 || M.some(row => row.length !== 28 || row !== [...row].reverse().join(""))) res.push({ maze: idx, why: "size or symmetry" });
+      for (let r = 9; r <= 19; r++) if (M[r] !== P.MAZES[0][r]) res.push({ maze: idx, why: "house area differs", r });
+    });
+    if (res.length) return res;
+  });
+  t("迷路：レベルごとに迷路が交互に切り替わり、エサの数・盤面が正しく入れ替わる", () => {
+    freshPlay(); const m1 = P.MAZE, n1 = P.totalPellets;
+    P.pelletsLeft = 1; P.tick(0.5); P.tick(2.2);                       // レベル1をクリア → レベル2
+    const m2 = P.MAZE, n2 = P.totalPellets, g2 = P.grid.map(r => r.join("")).join("|");
+    P.tick(2.0); P.pelletsLeft = 1; P.tick(0.5); P.tick(2.2);          // レベル2をクリア → レベル3
+    const m3 = P.MAZE, level = P.state.level;
+    const same = (a, b) => a === b;
+    if (!(same(m1, P.MAZES[0]) && same(m2, P.MAZES[1]) && same(m3, P.MAZES[0]) && level === 3)) return { level, m1: m1 === P.MAZES[0], m2: m2 === P.MAZES[1], m3: m3 === P.MAZES[0] };
+    if (!(n1 === 246 && n2 === 250 && g2 === P.MAZES[1].join("|").replace(/[^.o#X\- |]/g, " "))) {
+      const expect = P.MAZES[1].join("|"); return { n1, n2, gridMatches: g2 === expect };
     }
-    const missing = []; let pellets = 0;
-    for (let r = 0; r < 31; r++) for (let c = 0; c < 28; c++) if (P.MAZE[r][c] === "." || P.MAZE[r][c] === "o") { pellets++; if (!seen.has(c + "," + r)) missing.push([c, r]); }
-    if (missing.length || pellets !== P.totalPellets) return { missing, pellets, total: P.totalPellets };
   });
   t("ゴーストが固まらない：プレイ中は全員が常に動き続ける（5分相当×3回）", () => {
     const stuck = [];
