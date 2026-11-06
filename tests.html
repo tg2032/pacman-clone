@@ -328,6 +328,34 @@ frame.addEventListener("load", () => {
     }
     if (stuck.length) return stuck.slice(0, 3);
   });
+  const ptr = (el, type, x, y, id = 1) => el.dispatchEvent(new win.PointerEvent(type, { bubbles: true, pointerId: id, isPrimary: true, clientX: x, clientY: y }));
+  const wrapEl = () => doc.getElementById("wrap");
+  t("スマホ操作：スワイプは指を離す前に反応し、連続で方向を変えられ、離してもポーズしない", () => {
+    freshPlay(); const w = wrapEl(), b = w.getBoundingClientRect(), x = b.x + b.width / 2, y = b.y + b.height / 2;
+    ptr(w, "pointerdown", x, y); ptr(w, "pointermove", x, y - 30);
+    if (P.pac.want !== "up") return ["up", P.pac.want];
+    ptr(w, "pointermove", x + 40, y - 30); if (P.pac.want !== "right") return ["right", P.pac.want];   // 起点が更新され、連続して曲がれる
+    ptr(w, "pointermove", x + 40, y + 10); if (P.pac.want !== "down") return ["down", P.pac.want];
+    ptr(w, "pointerup", x + 40, y + 10); if (P.state.phase !== "play") return ["paused by swipe", P.state.phase];
+  });
+  t("スマホ操作：軽いタップでポーズ/再開。小さな指の揺れはスワイプにならず、キャンセルでは切り替わらない", () => {
+    freshPlay(); const w = wrapEl(), b = w.getBoundingClientRect(), x = b.x + b.width / 2, y = b.y + b.height / 2;
+    const want0 = P.pac.want;
+    ptr(w, "pointerdown", x, y); ptr(w, "pointermove", x + 10, y + 5); ptr(w, "pointerup", x + 10, y + 5);   // 22px 未満の揺れ = タップ
+    if (P.state.phase !== "paused") return ["tap should pause", P.state.phase];
+    if (P.pac.want !== want0) return ["wobble changed direction", P.pac.want];
+    ptr(w, "pointerdown", x, y); ptr(w, "pointerup", x, y); if (P.state.phase !== "play") return ["tap should resume", P.state.phase];
+    ptr(w, "pointerdown", x, y, 2); ptr(w, "pointercancel", x, y, 2); if (P.state.phase !== "play") return ["cancel toggled", P.state.phase];
+    ptr(w, "pointerdown", x, y, 3); ptr(w, "pointerup", x, y, 4); if (P.state.phase !== "play") return ["other pointer toggled", P.state.phase];
+  });
+  t("スマホ操作：十字ボタン・中央ボタン・リスタートボタンが効く", () => {
+    freshPlay(); const btn = sel => doc.querySelector(sel);
+    for (const d of ["up", "down", "right", "left"]) { ptr(btn(`#dpad [data-dir="${d}"]`), "pointerdown", 0, 0); if (P.pac.want !== d) return [d, P.pac.want]; }
+    ptr(btn("#btnAction"), "pointerdown", 0, 0); if (P.state.phase !== "paused" || btn("#btnAction").textContent !== "▶") return ["pause", P.state.phase, btn("#btnAction").textContent];
+    ptr(btn("#btnAction"), "pointerdown", 0, 0); if (P.state.phase !== "play" || btn("#btnAction").textContent !== "⏸") return ["resume", P.state.phase];
+    P.state.score = 500; ptr(btn("#btnRestart"), "pointerdown", 0, 0); if (!(P.state.phase === "ready" && P.state.score === 0)) return ["restart", P.state.phase, P.state.score];
+    P.setPhase("title");
+  });
   t("不変条件：長時間プレイ中、エサの残数と盤面が常に一致し、得点は減らず、巣の外のゴーストは巣に入らない", () => {
     const dirs = ["up", "down", "left", "right"]; const bad = [];
     const count = () => { let n = 0; for (const row of P.grid) for (const ch of row) if (ch === "." || ch === "o") n++; return n; };
