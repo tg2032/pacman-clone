@@ -210,6 +210,63 @@ frame.addEventListener("load", () => {
     P.setPhase("play"); if (doc.getElementById("diffPick").style.display !== "none") return "picker visible during play";
     toNormal();
   });
+  const clearRank = () => { for (const k of ["pacman-rank", "pacman-rank-easy", "pacman-rank-hard"]) win.localStorage.removeItem(k); };
+  t("ランキング：降順に並び、上位5件だけ残り、0点は記録されない", () => {
+    clearRank(); P.setPhase("title"); P.setDifficulty("normal");
+    const got = [];
+    for (const sc of [100, 500, 300, 700, 200, 900, 0]) { P.state.score = sc; P.recordScore(); got.push(P.state.lastRank); }
+    const list = P.loadRank("normal");
+    const stored = JSON.parse(win.localStorage.getItem("pacman-rank"));   // 読み込み時の絞りに頼らず、保存された中身そのものを確認
+    if (list.join() !== "900,700,500,300,200") { clearRank(); return list; }          // 100 は圏外で押し出される
+    if (stored.join() !== "900,700,500,300,200") { clearRank(); return { stored }; }   // 0点が保存されていない・6件以上保存されていない
+    if (got.join() !== "0,0,1,0,3,0,-1") { clearRank(); return got; }   // 各回に入った順位（0点と最下位未満は -1）
+    P.state.score = 50; P.recordScore();                              // 5件が埋まっている状態で最下位より低い点は圏外
+    const outOfRange = P.state.lastRank; clearRank();
+    if (outOfRange !== -1) return ["out of range must be -1", outOfRange];
+  });
+  t("ランキング：空き枠があっても0点は記録されない", () => {
+    clearRank(); P.setPhase("title"); P.setDifficulty("normal");
+    P.state.score = 0; P.recordScore(); const empty = win.localStorage.getItem("pacman-rank");
+    P.state.score = 80; P.recordScore(); P.state.score = 0; P.recordScore();   // 1件だけ入った状態でも0点は入らない
+    const list = P.loadRank("normal"), rank = P.state.lastRank;
+    clearRank();
+    if (empty !== null) return { empty };
+    if (list.join() !== "80" || rank !== -1) return { list, rank };
+  });
+  t("ランキング：同点は先に記録した方が上位／壊れたデータは空として扱う", () => {
+    clearRank(); P.setPhase("title"); P.setDifficulty("normal");
+    P.state.score = 400; P.recordScore(); P.state.score = 400; P.recordScore();
+    const tie = P.state.lastRank, list = P.loadRank("normal");
+    win.localStorage.setItem("pacman-rank", "{not json"); const broken = P.loadRank("normal");
+    win.localStorage.setItem("pacman-rank", '["a",null,7]'); const mixed = P.loadRank("normal");
+    clearRank();
+    if (!(tie === 1 && list.join() === "400,400")) return { tie, list };
+    if (broken.length !== 0 || mixed.join() !== "7") return { broken, mixed };
+  });
+  t("ランキング：難易度ごとに別々・保存が失敗しても例外にならない", () => {
+    clearRank(); P.setPhase("title");
+    P.setDifficulty("easy"); P.state.score = 111; P.recordScore();
+    P.setDifficulty("hard"); P.state.score = 222; P.recordScore();
+    const e = P.loadRank("easy").join(), h = P.loadRank("hard").join(), n = P.loadRank("normal").join();
+    const proto = win.Storage.prototype, setI = proto.setItem; proto.setItem = () => { throw new Error("denied"); };
+    try { P.state.score = 333; P.recordScore(); } finally { proto.setItem = setI; }
+    clearRank(); toNormal();
+    if (!(e === "111" && h === "222" && n === "")) return { e, h, n };
+  });
+  t("ランキング：ゲームオーバーで記録・表示され、今回の記録が強調される", () => {
+    clearRank(); freshPlay(); P.state.lives = 1; P.state.score = 1234;
+    ghostOnPac(P.ghosts[0]); P.frightTimer = 0; P.tick(0.05); P.tick(2.0);
+    if (P.state.phase !== "gameover") return P.state.phase;
+    const items = () => [...doc.querySelectorAll("#rank li")];
+    const rows = items().map(li => li.textContent);
+    if (rows[0] !== "RANKING · NORMAL" || rows[1] !== "1位　1234") return rows;
+    if (!items()[1].classList.contains("me")) return "new entry not highlighted";
+    P.setDifficulty("hard");                                          // 別の難易度に切り替えると、その難易度の表示になり強調は消える
+    const hardRows = items().map(li => li.textContent), hardMe = items().some(li => li.classList.contains("me"));
+    if (hardRows.join() !== "RANKING · HARD,まだ記録がありません" || hardMe) return { hardRows, hardMe };
+    P.setPhase("play"); if (doc.getElementById("rank").style.display !== "none") return "ranking visible during play";
+    clearRank(); toNormal();
+  });
   t("迷路：パックマンの初期位置から全エサに到達できる（左右ワープ含む）", () => {
     freshPlay();
     const seen = new Set([P.pac.c + "," + P.pac.r]); const q = [[P.pac.c, P.pac.r]];
@@ -256,7 +313,7 @@ frame.addEventListener("load", () => {
     if (walls || nan || errors.length) return { walls, nan, errors };
   });
 
-  try { for (const k of ["pacman-high", "pacman-high-easy", "pacman-high-hard", "pacman-diff", "pacman-muted"]) win.localStorage.removeItem(k); } catch (e) { /* 無視 */ }
+  try { for (const k of ["pacman-high", "pacman-high-easy", "pacman-high-hard", "pacman-diff", "pacman-muted", "pacman-rank", "pacman-rank-easy", "pacman-rank-hard"]) win.localStorage.removeItem(k); } catch (e) { /* 無視 */ }
   const s = document.getElementById("summary");
   s.textContent = `${passed + failed} 件中 ${passed} 件成功` + (failed ? `、${failed} 件失敗` : "");
   s.className = failed ? "ng" : "ok";

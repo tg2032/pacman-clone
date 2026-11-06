@@ -111,6 +111,10 @@
   #overlay.hidden { display: none; }
   #overlay .big { font-size: clamp(20px, 6vw, 26px); color: var(--accent); letter-spacing: .1em; }
   #overlay .small { font-size: 12px; opacity: .75; }
+  #rank { list-style: none; margin: 2px 0; padding: 0; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+  #rank li { opacity: .8; }
+  #rank .rh { opacity: .6; font-size: 11px; letter-spacing: .12em; }
+  #rank .me { color: var(--accent); opacity: 1; font-weight: 700; }
   #diffPick { display: flex; gap: 8px; margin: 4px 0; }
   .dbtn {
     border: 1px solid #2b4cff88;
@@ -212,6 +216,7 @@
       <button class="dbtn" data-diff="normal" aria-pressed="true">NORMAL</button>
       <button class="dbtn" data-diff="hard" aria-pressed="false">HARD</button>
     </div>
+    <ol id="rank" aria-label="ランキング"></ol>
     <div class="small" id="ovHint">矢印キー / WASD / スワイプで移動　P：ポーズ　R：リスタート　M：ミュート</div>
   </div>
 </div>
@@ -348,6 +353,8 @@ const state = {
   extraLife: false,
   muted: store.get("pacman-muted", "0") === "1",
   startHigh: 0,
+  lastRank: -1,        // 直近のゲームオーバーで入った順位(0始まり)。圏外は -1
+  lastRankDiff: "",
 };
 
 let grid, pelletsLeft, totalPellets, fruit, fruitSpawned;
@@ -502,6 +509,40 @@ function handleAction() {
 }
 function handleRestart() { newGame(); }
 // 難易度はスタート前（タイトル／ゲームオーバー）だけ変更できる
+// ランキング：難易度ごとに上位5件を端末に保存する（壊れたデータは空として扱う）
+const RANK_SIZE = 5;
+const rankKey = d => d === "normal" ? "pacman-rank" : "pacman-rank-" + d;
+function loadRank(d) {
+  try {
+    const a = JSON.parse(store.get(rankKey(d), "[]"));
+    return Array.isArray(a) ? a.filter(n => Number.isFinite(n)).slice(0, RANK_SIZE) : [];
+  } catch (e) { return []; }
+}
+function recordScore() {
+  state.lastRank = -1;
+  state.lastRankDiff = state.difficulty;
+  if (state.score <= 0) return;
+  const list = loadRank(state.difficulty);
+  let i = list.findIndex(n => state.score > n);   // 同点は先に記録された方が上位
+  if (i < 0) i = list.length;
+  if (i >= RANK_SIZE) return;
+  list.splice(i, 0, state.score);
+  list.length = Math.min(list.length, RANK_SIZE);
+  store.set(rankKey(state.difficulty), JSON.stringify(list));
+  state.lastRank = i;
+}
+function renderRank() {
+  const on = state.phase === "gameover";
+  el.rank.style.display = on ? "" : "none";
+  if (!on) return;
+  const list = loadRank(state.difficulty);
+  el.rank.textContent = "";
+  const add = (text, cls) => { const li = document.createElement("li"); li.textContent = text; if (cls) li.className = cls; el.rank.appendChild(li); };
+  add("RANKING · " + DIFFS[state.difficulty].label, "rh");
+  if (!list.length) add("まだ記録がありません");
+  list.forEach((n, i) => add((i + 1) + "位　" + n, i === state.lastRank && state.lastRankDiff === state.difficulty ? "me" : ""));
+}
+
 function setDifficulty(d) {
   if (!DIFFS[d] || (state.phase !== "title" && state.phase !== "gameover")) return;
   state.difficulty = d;
@@ -821,7 +862,7 @@ function update(dt) {
         setPhase("ready", 1.8);
       } else { // dying
         state.lives--;
-        if (state.lives <= 0) setPhase("gameover");
+        if (state.lives <= 0) { recordScore(); setPhase("gameover"); }
         else { resetActors(); setPhase("ready", 1.8); }
       }
     }
@@ -1080,6 +1121,7 @@ const el = {
   ovHint: document.getElementById("ovHint"),
   btnAction: document.getElementById("btnAction"),
   diffPick: document.getElementById("diffPick"),
+  rank: document.getElementById("rank"),
 };
 const hudCache = {};
 function setText(node, key, value) {
@@ -1127,6 +1169,7 @@ function updateOverlay() {
   el.btnAction.textContent = (state.phase === "play") ? "⏸" : "▶";
   el.diffPick.style.display = (state.phase === "title" || state.phase === "gameover") ? "" : "none";
   el.diffPick.querySelectorAll("[data-diff]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.diff === state.difficulty)));
+  renderRank();
 }
 
 // ---------------------------------------------------------------- メインループ
@@ -1165,7 +1208,7 @@ if (TEST) {
     get pelletsLeft() { return pelletsLeft; },
     set pelletsLeft(v) { pelletsLeft = v; },
     get totalPellets() { return totalPellets; },
-    draw, DPR, DIFFS, setDifficulty, update, handleDir, handleAction, handleRestart, setPhase, newGame, resetLevel, actorPos, ghostSpeed, pollGamepad,
+    draw, DPR, DIFFS, setDifficulty, recordScore, loadRank, RANK_SIZE, update, handleDir, handleAction, handleRestart, setPhase, newGame, resetLevel, actorPos, ghostSpeed, pollGamepad,
     tick(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) update(STEP); },
   };
 }
