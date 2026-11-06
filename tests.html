@@ -300,6 +300,29 @@ frame.addEventListener("load", () => {
     }
     if (stuck.length) return stuck.slice(0, 3);
   });
+  t("不変条件：長時間プレイ中、エサの残数と盤面が常に一致し、得点は減らず、巣の外のゴーストは巣に入らない", () => {
+    const dirs = ["up", "down", "left", "right"]; const bad = [];
+    const count = () => { let n = 0; for (const row of P.grid) for (const ch of row) if (ch === "." || ch === "o") n++; return n; };
+    const inHouse = g => g.r >= 13 && g.r <= 15 && g.c >= 11 && g.c <= 16;     // 巣の内部(壁に囲まれた空間)
+    for (const d of ["easy", "normal", "hard"]) {
+      P.setPhase("title"); P.setDifficulty(d); P.state.high = 0; P.newGame();
+      let lastScore = 0, lastLevel = 1;
+      for (let i = 0; i < 12 * 60 * 10 && bad.length < 3; i++) {
+        if (i % 3 === 0) P.handleDir(dirs[(Math.random() * 4) | 0]);
+        P.tick(0.1);
+        const ph = P.state.phase;
+        if (ph === "gameover" || ph === "paused") { P.handleAction(); lastScore = 0; lastLevel = 1; continue; }
+        if (ph === "levelclear" || ph === "ready") { lastScore = P.state.score; lastLevel = P.state.level; continue; }
+        if (count() !== P.pelletsLeft) bad.push({ d, i, why: "pellets", grid: count(), counter: P.pelletsLeft });
+        if (P.state.score < lastScore && P.state.level === lastLevel) bad.push({ d, i, why: "score decreased", from: lastScore, to: P.state.score });
+        lastScore = P.state.score; lastLevel = P.state.level;
+        if (P.state.lives < 0 || P.state.lives > 12) bad.push({ d, i, why: "lives", lives: P.state.lives });
+        for (const g of P.ghosts) if (g.mode === "out" && inHouse(g)) bad.push({ d, i, why: "ghost entered house", name: g.name, c: g.c, r: g.r });
+      }
+    }
+    toNormal();
+    if (bad.length) return bad.slice(0, 3);
+  });
   t("30分相当のランダムプレイで壁抜け・NaN・例外が出ない", () => {
     const dirs = ["up", "down", "left", "right"]; let walls = 0, nan = 0;
     P.state.high = 0; P.newGame();
