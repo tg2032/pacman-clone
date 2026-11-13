@@ -936,9 +936,9 @@ function update(dt) {
 
   if (state.phase === "play" && pelletsLeft === 0) {
     fruit = null;
+    state.perfect = !state.missed;            // オーバーレイの文言に使うので setPhase より先に決める
+    if (state.perfect) addScore(PERFECT_BONUS);
     setPhase("levelclear", 2);
-    state.perfect = !state.missed;
-    if (state.perfect) { addScore(PERFECT_BONUS); }
     sfx.clear();
   }
 }

@@ -123,6 +123,7 @@ frame.addEventListener("load", () => {
   });
   t("ノーミスボーナス：ミスせずクリアで+1000、ミスした場合は無し、次のレベルでは再び判定", () => {
     freshPlay(); const s0 = P.state.score; P.pelletsLeft = 0; P.tick(0.1);
+    if (!doc.getElementById("ovText").textContent.includes("PERFECT")) return "overlay lacks PERFECT: " + doc.getElementById("ovText").textContent;
     if (P.state.score - s0 !== 1000 || !P.state.perfect) return { gain: P.state.score - s0, perfect: P.state.perfect };
     P.tick(2.2);                                                       // レベル2へ
     P.tick(2.0); const g = P.ghosts[0]; g.mode = "out"; g.c = P.pac.c; g.r = P.pac.r; g.prog = 0; P.frightTimer = 0; P.tick(0.05);
