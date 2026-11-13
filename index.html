@@ -938,7 +938,7 @@ function update(dt) {
     fruit = null;
     setPhase("levelclear", 2);
     state.perfect = !state.missed;
-    if (state.perfect) { addScore(PERFECT_BONUS); popups.push({ x: W / 2, y: 17.5 * TILE, text: "PERFECT +" + PERFECT_BONUS, t: 1.8, color: "#7dff7d" }); }
+    if (state.perfect) { addScore(PERFECT_BONUS); }
     sfx.clear();
   }
 }
