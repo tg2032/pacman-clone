@@ -121,6 +121,20 @@ frame.addEventListener("load", () => {
     freshPlay(); P.pelletsLeft = 1; P.tick(0.5); if (P.state.phase !== "levelclear") return P.state.phase;
     P.tick(2.2); if (!(P.state.level === 2 && P.pelletsLeft === P.totalPellets)) return [P.state.level, P.pelletsLeft];
   });
+  t("ノーミスボーナス：ミスせずクリアで+1000、ミスした場合は無し、次のレベルでは再び判定", () => {
+    freshPlay(); const s0 = P.state.score; P.pelletsLeft = 0; P.tick(0.1);
+    if (P.state.score - s0 !== 1000 || !P.state.perfect) return { gain: P.state.score - s0, perfect: P.state.perfect };
+    P.tick(2.2);                                                       // レベル2へ
+    P.tick(2.0); const g = P.ghosts[0]; g.mode = "out"; g.c = P.pac.c; g.r = P.pac.r; g.prog = 0; P.frightTimer = 0; P.tick(0.05);
+    if (P.state.phase !== "dying") return "no death: " + P.state.phase;
+    P.tick(3); P.tick(2.5);                                            // 復活して再開
+    if (P.state.phase !== "play") return "not replaying: " + P.state.phase;
+    const s1 = P.state.score; P.pelletsLeft = 0; P.tick(0.1);
+    if (P.state.score !== s1 || P.state.perfect) return { gain: P.state.score - s1, perfect: P.state.perfect };
+    P.tick(2.2);                                                       // レベル3：ミスなしに戻る
+    P.tick(2.0); const s2 = P.state.score; P.pelletsLeft = 0; P.tick(0.1);
+    if (P.state.score - s2 !== 1000) return { gain3: P.state.score - s2 };
+  });
   t("ゴースト速度：トンネル/イジケで減速、Blinkyは終盤に加速", () => {
     freshPlay(); const g = P.ghosts[1]; g.mode = "out"; g.r = 5; g.c = 10; P.frightTimer = 0; const normal = P.ghostSpeed(g);
     g.r = 14; g.c = 2; const tunnel = P.ghostSpeed(g);

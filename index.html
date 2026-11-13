@@ -425,6 +425,7 @@ function resetActors() {
 }
 
 function resetLevel() {
+  state.missed = false;               // このレベルでミスしたか(ノーミスボーナス用)
   mazeIdx = (state.level - 1) % MAZES.length;
   MAZE = MAZES[mazeIdx];
   grid = MAZE.map(row => row.split(""));
@@ -816,6 +817,7 @@ function ghostSpeed(g) {
 }
 
 // ---------------------------------------------------------------- 更新
+const PERFECT_BONUS = 1000;          // ミスせずにレベルをクリアしたときのボーナス
 function addScore(n) {
   state.score += n;
   if (state.score > state.high) {
@@ -892,7 +894,7 @@ function update(dt) {
         resetLevel();
         setPhase("ready", 1.8);
       } else { // dying
-        state.lives--;
+        state.lives--; state.missed = true;
         if (state.lives <= 0) { recordScore(); setPhase("gameover"); }
         else { resetActors(); setPhase("ready", 1.8); }
       }
@@ -935,6 +937,8 @@ function update(dt) {
   if (state.phase === "play" && pelletsLeft === 0) {
     fruit = null;
     setPhase("levelclear", 2);
+    state.perfect = !state.missed;
+    if (state.perfect) { addScore(PERFECT_BONUS); popups.push({ x: W / 2, y: 17.5 * TILE, text: "PERFECT +" + PERFECT_BONUS, t: 1.8, color: "#7dff7d" }); }
     sfx.clear();
   }
 }
@@ -1202,7 +1206,7 @@ function updateOverlay() {
       show("GAME OVER", (record ? "NEW HIGH SCORE  " : "SCORE ") + state.score, "タップ / SPACE でもう一度");
       break;
     }
-    case "levelclear": show("LEVEL " + state.level + " CLEAR!", "次のレベルへ"); break;
+    case "levelclear": show("LEVEL " + state.level + " CLEAR!", state.perfect ? "PERFECT! +" + PERFECT_BONUS : "次のレベルへ"); break;
     default:           el.overlay.classList.add("hidden");
   }
   el.btnAction.textContent = (state.phase === "play") ? "⏸" : "▶";
