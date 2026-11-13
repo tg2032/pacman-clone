@@ -298,14 +298,17 @@ frame.addEventListener("load", () => {
     });
     if (res.length) return res;
   });
-  t("迷路：レベルごとに迷路が交互に切り替わり、エサの数・盤面が正しく入れ替わる", () => {
+  t("迷路：レベルごとに迷路が順番に（1→2→3→1）切り替わり、エサの数・盤面が正しく入れ替わる", () => {
     freshPlay(); const m1 = P.MAZE, n1 = P.totalPellets;
     P.pelletsLeft = 1; P.tick(0.5); P.tick(2.2);                       // レベル1をクリア → レベル2
     const m2 = P.MAZE, n2 = P.totalPellets, g2 = P.grid.map(r => r.join("")).join("|");
     P.tick(2.0); P.pelletsLeft = 1; P.tick(0.5); P.tick(2.2);          // レベル2をクリア → レベル3
-    const m3 = P.MAZE, level = P.state.level;
+    const m3 = P.MAZE, level = P.state.level, n3 = P.totalPellets;
+    P.tick(2.0); P.pelletsLeft = 1; P.tick(0.5); P.tick(2.2);          // レベル3をクリア → レベル4(迷路1に戻る)
+    const m4 = P.MAZE;
     const same = (a, b) => a === b;
-    if (!(same(m1, P.MAZES[0]) && same(m2, P.MAZES[1]) && same(m3, P.MAZES[0]) && level === 3)) return { level, m1: m1 === P.MAZES[0], m2: m2 === P.MAZES[1], m3: m3 === P.MAZES[0] };
+    if (!(same(m1, P.MAZES[0]) && same(m2, P.MAZES[1]) && same(m3, P.MAZES[2]) && same(m4, P.MAZES[0]) && level === 3 && P.state.level === 4)) return { level, m1: m1 === P.MAZES[0], m2: m2 === P.MAZES[1], m3: m3 === P.MAZES[2], m4: m4 === P.MAZES[0] };
+    if (n3 !== P.MAZES[2].join("").replace(/[^.o]/g, "").length || P.MAZES.length !== 3 || P.MAZES[2].join() === P.MAZES[1].join() || P.MAZES[2].join() === P.MAZES[0].join()) return { n3, len: P.MAZES.length };
     if (!(n1 === 246 && n2 === 250 && g2 === P.MAZES[1].join("|").replace(/[^.o#X\- |]/g, " "))) {
       const expect = P.MAZES[1].join("|"); return { n1, n2, gridMatches: g2 === expect };
     }
