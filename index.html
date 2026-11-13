@@ -96,6 +96,11 @@
     overflow: hidden;
   }
   canvas { display: block; width: 100%; height: auto; touch-action: none; }
+  /* ブラウン管風の走査線（ごく薄く。クリックやタッチは邪魔しない） */
+  #wrap::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(to bottom, rgba(0,0,0,0.14) 0 1px, transparent 1px 3px);
+  }
   #overlay {
     position: absolute; inset: 0;
     display: flex; flex-direction: column;
@@ -713,12 +718,14 @@ function step(actor, speed, dt, onArrive, canPassDoor) {
   }
 }
 
+const EAT_STALL = 1 / 60;
 function pacArrive() {
   const cell = grid[pac.r][pac.c];
   if (cell === ".") {
     grid[pac.r][pac.c] = " ";
     pelletsLeft--;
     addScore(10);
+    pac.stall = EAT_STALL;
     sfx.waka();
     onPelletEaten();
   } else if (cell === "o") {
@@ -728,6 +735,7 @@ function pacArrive() {
     frightTimer = Math.max(2, DIFFS[state.difficulty].fright - (state.level - 1) * 0.6);
     state.ghostCombo = 0;
     for (const g of ghosts) if (g.mode === "out") reverse(g);
+    pac.stall = EAT_STALL * 3;
     sfx.power();
     onPelletEaten();
   }
@@ -920,7 +928,9 @@ function update(dt) {
   }
 
   pac.mouth += dt * 12;
-  step(pac, 7 + (state.level - 1) * 0.15, dt, pacArrive, false);
+  // アーケード版と同じく、エサを食べた瞬間にパックマンが一瞬止まる（エサ1/60秒、パワーエサ3/60秒）
+  if ((pac.stall || 0) > 0) pac.stall -= dt;
+  else step(pac, 7 + (state.level - 1) * 0.15, dt, pacArrive, false);
   checkFruit(dt);
 
   for (const g of ghosts) {
