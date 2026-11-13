@@ -425,7 +425,7 @@ function resetActors() {
 }
 
 function resetLevel() {
-  state.missed = false;               // このレベルでミスしたか(ノーミスボーナス用)
+  state.missed = false; state.perfect = false;   // このレベルでミスしたか(ノーミスボーナス用)
   mazeIdx = (state.level - 1) % MAZES.length;
   MAZE = MAZES[mazeIdx];
   grid = MAZE.map(row => row.split(""));
