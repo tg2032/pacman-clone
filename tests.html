@@ -356,6 +356,39 @@ frame.addEventListener("load", () => {
     P.state.score = 500; ptr(btn("#btnRestart"), "pointerdown", 0, 0); if (!(P.state.phase === "ready" && P.state.score === 0)) return ["restart", P.state.phase, P.state.score];
     P.setPhase("title");
   });
+  t("描画解像度：表示サイズに合わせた倍率になり、盤面が縮小されても過剰に描かない", () => {
+    const cv = doc.getElementById("game"), wrap = doc.getElementById("wrap");
+    const dpr = win.devicePixelRatio || 1, css = cv.getBoundingClientRect().width;
+    const need = css * dpr / 560;                                             // 表示に必要な倍率
+    if (P.DPR < 1 || P.DPR > 3) return ["scale out of range", P.DPR];
+    if (cv.width !== Math.round(560 * P.DPR) || cv.height !== Math.round(620 * P.DPR)) return ["backing size mismatch", cv.width, cv.height, P.DPR];
+    if (P.DPR < Math.min(need, 3) - 0.01) return ["under-sampled", P.DPR, need];   // 足りない（ぼやける）
+    if (P.DPR > Math.max(1, need) + 0.26) return ["over-sampled", P.DPR, need];     // 多すぎる（無駄な描画）
+  });
+  t("描画解像度：DPR3の端末で盤面の表示サイズが変わると、倍率と迷路レイヤーが追従して作り直される", () => {
+    const cv = doc.getElementById("game"), wrap = doc.getElementById("wrap");
+    const realDpr = Object.getOwnPropertyDescriptor(win, "devicePixelRatio");
+    Object.defineProperty(win, "devicePixelRatio", { configurable: true, get: () => 3 });   // DPR3 のスマホを再現
+    const refit = (wpx) => { wrap.style.width = wpx; win.dispatchEvent(new win.Event("resize")); return { scale: P.DPR, w: cv.width, h: cv.height, css: Math.round(cv.getBoundingClientRect().width), layer: P.mazeLayerSize }; };
+    const lit = () => { P.draw(0); const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++; return n; };
+    const oldW = wrap.style.width, res = {};
+    try {
+      freshPlay();
+      res.big = refit("560px");   res.bigLit = lit();       // 560px 表示 → 3 倍が必要
+      res.mid = refit("366px");   res.midLit = lit();       // 一般的なスマホ縦向き(約 362px)
+      res.small = refit("300px"); res.smallLit = lit();     // 横向きなど小さい表示
+    } finally {
+      if (realDpr) Object.defineProperty(win, "devicePixelRatio", realDpr); else delete win.devicePixelRatio;
+      wrap.style.width = oldW; win.dispatchEvent(new win.Event("resize"));
+    }
+    const near = (r) => r.w / (r.css * 3);                    // 表示に必要な解像度に対する倍率(1.0 が理想)
+    if (!(res.big.scale === 3 && res.big.w === 1680)) return res;                            // 大きい表示では最大倍率
+    if (!(res.mid.scale < res.big.scale && res.small.scale < res.mid.scale)) return res;     // 表示が小さいほど倍率も下がる
+    if (!(near(res.mid) >= 0.98 && near(res.mid) <= 1.3 && near(res.small) >= 0.98 && near(res.small) <= 1.3)) return res;   // ぼやけず、過剰でもない
+    if (!(res.mid.w === Math.round(560 * res.mid.scale) && res.small.h === Math.round(620 * res.small.scale))) return res;     // キャンバスの実サイズが倍率と一致
+    if (!(res.bigLit > 5000 && res.midLit > 5000 && res.smallLit > 5000)) return res;        // 倍率が変わった後も迷路が描かれる
+    for (const k of ["big", "mid", "small"]) { const r = res[k]; if (!(r.layer && r.layer[0] === r.w && r.layer[1] === r.h && r.layer[2] === r.w)) return { why: "maze layer not rebuilt for new scale", k, r }; }   // 迷路レイヤーの実サイズがキャンバスと一致
+  });
   t("不変条件：長時間プレイ中、エサの残数と盤面が常に一致し、得点は減らず、巣の外のゴーストは巣に入らない", () => {
     const dirs = ["up", "down", "left", "right"]; const bad = [];
     const count = () => { let n = 0; for (const row of P.grid) for (const ch of row) if (ch === "." || ch === "o") n++; return n; };

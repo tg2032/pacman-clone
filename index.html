@@ -306,9 +306,23 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
 // 高解像度ディスプレイでもくっきり描画する
-const DPR = Math.min(window.devicePixelRatio || 1, 3);
-canvas.width = Math.round(W * DPR);
-canvas.height = Math.round(H * DPR);
+// 描画解像度は「実際に表示される大きさ」に合わせる。端末の倍率(DPR)どおりに描くと、
+// 盤面が縮小表示されるスマホでは必要な解像度の1.4〜1.7倍(ピクセル数で約2〜3倍)を描いてしまうため。
+let DPR = 1;
+function wantedScale() {
+  const cssW = canvas.getBoundingClientRect().width || W;
+  const s = Math.ceil(cssW * (window.devicePixelRatio || 1) / W * 4) / 4;   // 0.25 刻みで切り上げ
+  return Math.min(Math.max(s, 1), 3);
+}
+function applyScale() {
+  const s = wantedScale();
+  if (s === DPR && canvas.width === Math.round(W * s)) return false;
+  DPR = s;
+  canvas.width = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  return true;
+}
+applyScale();
 
 const wrapCol = c => ((c % COLS) + COLS) % COLS;
 function tileAt(c, r) {
@@ -961,7 +975,15 @@ function makeMazeLayer(maze, color) {
   }
   return layer;
 }
-const mazeLayers = MAZES.map(m => ({ blue: makeMazeLayer(m, "#2b4cff"), white: makeMazeLayer(m, "#ffffff") }));
+let mazeLayers = null;
+function buildMazeLayers() {
+  mazeLayers = MAZES.map(m => ({ blue: makeMazeLayer(m, "#2b4cff"), white: makeMazeLayer(m, "#ffffff") }));
+}
+buildMazeLayers();
+// 画面の回転・リサイズ・ウィンドウ移動で表示サイズや倍率が変わったら、解像度を合わせ直す
+function refit() { if (applyScale()) buildMazeLayers(); }
+addEventListener("resize", refit);
+if (window.ResizeObserver) new ResizeObserver(refit).observe(canvas);
 
 function drawPellets(time) {
   const blink = REDUCE_MOTION || Math.sin(time * 8) > -0.4;
@@ -1221,7 +1243,9 @@ if (TEST) {
     get pelletsLeft() { return pelletsLeft; },
     set pelletsLeft(v) { pelletsLeft = v; },
     get totalPellets() { return totalPellets; },
-    draw, DPR, DIFFS, setDifficulty, recordScore, loadRank, RANK_SIZE, update, handleDir, handleAction, handleRestart, setPhase, newGame, resetLevel, actorPos, ghostSpeed, pollGamepad,
+    get DPR() { return DPR; },
+    get mazeLayerSize() { return mazeLayers ? [mazeLayers[0].blue.width, mazeLayers[0].blue.height, mazeLayers[1].white.width] : null; },
+    draw, DIFFS, setDifficulty, recordScore, loadRank, RANK_SIZE, update, handleDir, handleAction, handleRestart, setPhase, newGame, resetLevel, actorPos, ghostSpeed, pollGamepad,
     tick(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) update(STEP); },
   };
 }
