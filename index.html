@@ -98,11 +98,12 @@
   canvas { display: block; width: 100%; height: auto; touch-action: none; }
   /* ブラウン管風の走査線（ごく薄く。クリックやタッチは邪魔しない） */
   #wrap::after {
-    content: ""; position: absolute; inset: 0; pointer-events: none;
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1;   /* 文字のオーバーレイ(z-index:2)より下 */
     background: repeating-linear-gradient(to bottom, rgba(0,0,0,0.14) 0 1px, transparent 1px 3px);
   }
+  @media (prefers-contrast: more) { #wrap::after { display: none; } }
   #overlay {
-    position: absolute; inset: 0;
+    position: absolute; inset: 0; z-index: 2;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     gap: 8px;
@@ -398,7 +399,7 @@ const popups = [];
 const SCATTER_CHASE = [7, 20, 7, 20, 5, 20, 5, Infinity]; // 秒（偶数番目が散開）
 
 function makePac() {
-  return { c: 13, r: 23, dir: "left", want: "left", prog: 0, mouth: 0, dead: 0, blocked: false };
+  return { c: 13, r: 23, dir: "left", want: "left", prog: 0, mouth: 0, dead: 0, blocked: false, stall: 0 };
 }
 
 function makeGhost(name, color, scatter, c, r, releaseAt) {
@@ -532,7 +533,12 @@ function handleDir(dir) {
   pac.want = dir;
   if (state.phase !== "play") return;
   // 逆方向は通路の途中でも即座に反転できる
-  if (dir === OPPOSITE[pac.dir]) { reverse(pac); return; }
+  // ただしタイル中心(prog=0)で止まっている間は、反対側が壁かもしれないので、壁でなければ反転する
+  if (dir === OPPOSITE[pac.dir]) {
+    const o = DIRS[dir];
+    if (pac.prog > 0 || !isWall(pac.c + o.x, pac.r + o.y, false)) reverse(pac);
+    return;
+  }
   // 曲がり角を少し通り過ぎた直後でも、入力を受け付けて角に戻って曲がる（コーナリング猶予）
   if (dir !== pac.dir && !pac.blocked && pac.prog > 0 && pac.prog <= CORNER_SLACK) {
     const d = DIRS[dir];
@@ -715,17 +721,22 @@ function step(actor, speed, dt, onArrive, canPassDoor) {
     onArrive(actor);
     const nd = DIRS[actor.dir];
     if (isWall(actor.c + nd.x, actor.r + nd.y, canPassDoor)) { actor.blocked = true; break; }
+    if (actor.stall > 0) break;      // 止まる指定が付いたら、この更新の残りの移動は捨てる
   }
 }
 
-const EAT_STALL = 1 / 60;
+// エサを食べた瞬間にパックマンが止まる時間（アーケード版：エサ1フレーム、パワーエサ3フレーム＝60fps換算）
+const EAT_STALL_DOT = 1 / 60, EAT_STALL_POWER = 3 / 60;
+// 通路を1マス進むたびにエサ1個ぶん止まっても、エサの上での実効速度が従来(7マス/秒)のままになる基本速度。
+// 何もない通路ではそれより速くなる（アーケード版と同じ向きの差）。ゴーストとの速度バランスを変えないための補正
+const PAC_BASE_SPEED = 1 / (1 / 7 - EAT_STALL_DOT);
 function pacArrive() {
   const cell = grid[pac.r][pac.c];
   if (cell === ".") {
     grid[pac.r][pac.c] = " ";
     pelletsLeft--;
     addScore(10);
-    pac.stall = EAT_STALL;
+    pac.stall = EAT_STALL_DOT;
     sfx.waka();
     onPelletEaten();
   } else if (cell === "o") {
@@ -735,7 +746,7 @@ function pacArrive() {
     frightTimer = Math.max(2, DIFFS[state.difficulty].fright - (state.level - 1) * 0.6);
     state.ghostCombo = 0;
     for (const g of ghosts) if (g.mode === "out") reverse(g);
-    pac.stall = EAT_STALL * 3;
+    pac.stall = EAT_STALL_POWER;
     sfx.power();
     onPelletEaten();
   }
@@ -927,10 +938,10 @@ function update(dt) {
     }
   }
 
-  pac.mouth += dt * 12;
   // アーケード版と同じく、エサを食べた瞬間にパックマンが一瞬止まる（エサ1/60秒、パワーエサ3/60秒）
-  if ((pac.stall || 0) > 0) pac.stall -= dt;
-  else step(pac, 7 + (state.level - 1) * 0.15, dt, pacArrive, false);
+  // 止まっている間は口も動かさない。浮動小数点の誤差で余分な1ステップ止まらないよう、ごく小さな許容を入れる
+  if (pac.stall > 1e-9) pac.stall -= dt;
+  else { pac.mouth += dt * 12; step(pac, PAC_BASE_SPEED + (state.level - 1) * 0.15, dt, pacArrive, false); }
   checkFruit(dt);
 
   for (const g of ghosts) {
