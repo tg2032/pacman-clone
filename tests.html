@@ -98,7 +98,7 @@ frame.addEventListener("load", () => {
     if (!(P.state.score - s === 100 && !P.fruit)) return P.state.score - s;
   });
   t("フルーツは時間切れで消える", () => {
-    freshPlay(); P.ghosts.forEach(g => { g.mode = "house"; g.release = 9999; });   // ゴーストを巣に留め、撃破の停止でタイマーが止まらないようにする
+    freshPlay(); P.ghosts.forEach(g => { g.mode = "house"; g.release = 9999; g.queued = false; });   // ゴーストを巣に留め、撃破の停止でタイマーが止まらないようにする
     P.pelletsLeft = P.totalPellets - 69; P.tick(0.3); if (!P.fruit) return "not spawned"; place(6, 5, 0, "right"); P.tick(10);
     if (P.fruit) return "still there";
   });
@@ -162,9 +162,25 @@ frame.addEventListener("load", () => {
     Object.assign(pc, { c: 5, r: 5, prog: 0, dir: "right", want: "right", blocked: false, stall: 0.01 });  // 左隣(4,5)は通路
     P.handleDir("left"); if (pc.dir !== "left") return { openBehind: pc.dir };
   });
+  t("ゴーストの出撃：エサ30個でインキー、60個でクライド（レベル1）。エサを食べないでいると時間で順番に出る", () => {
+    P.newGame(); P.tick(2.5);
+    const q = () => P.ghosts.slice(1).map(g => g.queued ? 1 : 0).join("");   // ピンキー・インキー・クライド(新しいゲームごとに作り直されるので毎回取得)
+    const out = [];
+    P.tick(0.05); if (q() !== "011") out.push({ start: q() });                  // ピンキーはすぐ出る
+    P.pac.c = 13; P.pac.r = 23; P.pac.prog = 0; P.pac.stall = 99;                // パックマンを止め、手動でエサの数を進める
+    P.releaseDots = 29; P.idleTime = 0; P.tick(0.05); if (q() !== "011") out.push({ at29: q() });
+    P.releaseDots = 30; P.tick(0.05); if (q() !== "001") out.push({ at30: q() });
+    P.releaseDots = 59; P.idleTime = 0; P.tick(0.05); if (q() !== "001") out.push({ at59: q() });
+    P.releaseDots = 60; P.tick(0.05); if (q() !== "000") out.push({ at60: q() });
+    // 時間での出撃：新しいゲームでエサを食べないまま待つ
+    P.newGame(); P.tick(2.5); P.pac.stall = 999; P.tick(0.05); const t0 = q();   // 011
+    P.releaseDots = 0; P.idleTime = 0; P.tick(3.9); const t1 = q(); P.tick(0.3); const t2 = q();
+    if (!(t0 === "011" && t1 === "011" && t2 === "001")) out.push({ t0, t1, t2 });
+    if (out.length) return out;
+  });
   t("パックマンの速さ：エサの上では従来どおり(約7マス/秒)、何もない通路ではそれより速い", () => {
     const run = kind => {
-      freshPlay(); P.frightTimer = 999; P.ghosts.forEach(g => { g.mode = "house"; g.release = 9999; });
+      freshPlay(); P.frightTimer = 999; P.ghosts.forEach(g => { g.mode = "house"; g.release = 9999; g.queued = false; });
       const pc = P.pac; Object.assign(pc, { c: 13, r: 23, prog: 0, dir: "left", want: "left", blocked: false, stall: 0 });
       for (let c = 7; c <= 12; c++) P.grid[23][c] = kind;
       P.tick(0.8); return (13 - P.pac.c) + P.pac.prog;

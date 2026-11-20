@@ -402,25 +402,34 @@ function makePac() {
   return { c: 13, r: 23, dir: "left", want: "left", prog: 0, mouth: 0, dead: 0, blocked: false, stall: 0 };
 }
 
-function makeGhost(name, color, scatter, c, r, releaseAt) {
+// 巣から出る条件(アーケード版に近い方式)：プレイヤーが食べたエサの数が need に達するか、
+// エサを一定時間食べないでいると、ピンキー→インキー→クライドの順に1匹ずつ出てくる。
+// need = null はブリンキー(最初から巣の外)
+function makeGhost(name, color, scatter, c, r, need) {
   return {
     name, color, scatter,
     c, r,
     dir: "up", prog: 0,
-    mode: releaseAt > 0 ? "house" : "out",  // house | out | eyes
-    release: releaseAt,
+    mode: need === null ? "out" : "house",  // house | out | eyes
+    release: 0,
+    queued: need !== null,                  // 最初の出撃待ち
+    need: need || 0,
     blocked: false,
   };
 }
+// レベルごとの「出るのに必要なエサの数」[ピンキー, インキー, クライド]
+function releaseNeeds(level) { return level <= 1 ? [0, 30, 60] : level === 2 ? [0, 0, 50] : [0, 0, 0]; }
+let releaseDots = 0, idleTime = 0;   // 出撃判定用：食べたエサの数 / 最後にエサを食べてからの時間
 
 function resetActors() {
   pac = makePac();
   ghosts = [
-    makeGhost("blinky", "#ff0000", { c: 25, r: -2 }, 13, 11, 0),
-    makeGhost("pinky",  "#ffb8ff", { c: 2,  r: -2 }, 13, 14, 1.5),
-    makeGhost("inky",   "#00ffff", { c: 27, r: 31 }, 11, 14, 5),
-    makeGhost("clyde",  "#ffb851", { c: 0,  r: 31 }, 16, 14, 9),
+    makeGhost("blinky", "#ff0000", { c: 25, r: -2 }, 13, 11, null),
+    makeGhost("pinky",  "#ffb8ff", { c: 2,  r: -2 }, 13, 14, releaseNeeds(state.level)[0]),
+    makeGhost("inky",   "#00ffff", { c: 27, r: 31 }, 11, 14, releaseNeeds(state.level)[1]),
+    makeGhost("clyde",  "#ffb851", { c: 0,  r: 31 }, 16, 14, releaseNeeds(state.level)[2]),
   ];
+  releaseDots = 0; idleTime = 0;
   ghosts[0].dir = "left";
   modeTimer = 0;
   modeIndex = 0;
@@ -756,6 +765,7 @@ function pacArrive() {
 }
 
 function onPelletEaten() {
+  releaseDots++; idleTime = 0;
   const eaten = totalPellets - pelletsLeft;
   if (fruitSpawned < FRUIT_SPAWN_AT.length && eaten >= FRUIT_SPAWN_AT[fruitSpawned]) {
     fruitSpawned++;
@@ -792,7 +802,7 @@ function ghostTarget(g) {
 function ghostArrive(g) {
   if (g.mode === "eyes" && g.c === HOUSE.c && g.r === HOUSE.r) {
     g.mode = "house";
-    g.release = 0.6;
+    g.release = 0.6; g.queued = false;
   } else if (g.mode === "house" && g.r === DOOR_OUT.r && g.c === DOOR_OUT.c) {
     g.mode = "out";
   }
@@ -944,9 +954,14 @@ function update(dt) {
   else { pac.mouth += dt * 12; step(pac, PAC_BASE_SPEED + (state.level - 1) * 0.15, dt, pacArrive, false); }
   checkFruit(dt);
 
+  // 出撃待ちのゴーストを、順番に1匹ずつ判定する
+  idleTime += dt;
+  const q = ghosts.find(g => g.queued);
+  if (q && (releaseDots >= q.need || idleTime >= (state.level < 5 ? 4 : 3))) { q.queued = false; idleTime = 0; }
+
   for (const g of ghosts) {
-    if (g.mode === "house" && g.release > 0) {
-      g.release -= dt;
+    if (g.mode === "house" && (g.queued || g.release > 0)) {
+      if (!g.queued) g.release -= dt;
       g.dir = (Math.floor(clock / 0.4) % 2) ? "up" : "down"; // 巣の中で上下を見る
       continue;
     }
@@ -1262,6 +1277,7 @@ requestAnimationFrame(loop);
 // 自動テスト用フック（URL に #test を付けたときだけ公開。通常のゲームループは止まる）
 if (TEST) {
   window.__pacman = {
+    get releaseDots() { return releaseDots; }, set releaseDots(v) { releaseDots = v; }, get idleTime() { return idleTime; }, set idleTime(v) { idleTime = v; },
     state, MAZES, STEP, popups, store,
     get MAZE() { return MAZE; },
     get pac() { return pac; },
