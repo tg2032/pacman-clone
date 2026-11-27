@@ -391,6 +391,9 @@ const state = {
   startHigh: 0,
   lastRank: -1,        // 直近のゲームオーバーで入った順位(0始まり)。圏外は -1
   lastRankDiff: "",
+  resumeTo: "play",    // ポーズを解除したときに戻る場面と、その残り時間
+  resumeTimer: 0,
+  confirmRestart: false,
 };
 
 let grid, pelletsLeft, totalPellets, fruit, fruitSpawned;
@@ -468,6 +471,7 @@ function newGame() {
 function setPhase(p, seconds = 0) {
   state.phase = p;
   state.timer = seconds;
+  state.confirmRestart = false;
   updateOverlay();
   setWakeLock(p === "ready" || p === "play" || p === "dying" || p === "levelclear");
 }
@@ -555,12 +559,32 @@ function handleDir(dir) {
     if (!isWall(pac.c + d.x, pac.r + d.y, false)) { pac.prog = 0; pac.dir = dir; }
   }
 }
+// ゲーム進行中の場面（ポーズできる）
+const RUNNING = ["ready", "play", "dying", "levelclear"];
+// READY や演出の途中でもポーズでき、解除すると同じ場面の続きから再開する
+function pause() {
+  if (!RUNNING.includes(state.phase)) return;
+  state.resumeTo = state.phase;
+  state.resumeTimer = state.timer;
+  setPhase("paused");
+}
+function resume() {
+  if (state.phase === "paused") setPhase(state.resumeTo, state.resumeTimer);
+}
+// タップ / SPACE は、READY や演出中の連打でうっかり止まらないよう、プレイ中だけポーズする
 function handleAction() {
   if (state.phase === "title" || state.phase === "gameover") newGame();
-  else if (state.phase === "play") setPhase("paused");
-  else if (state.phase === "paused") setPhase("play");
+  else if (state.phase === "play") pause();
+  else if (state.phase === "paused") resume();
 }
-function handleRestart() { newGame(); }
+// ゲーム中のリスタートは押し間違いで消えないように、もう一度押して確定する。確定した時点の得点はランキングに残す
+function handleRestart() {
+  if (state.phase === "title" || state.phase === "gameover") { newGame(); return; }
+  if (state.confirmRestart) { recordScore(); newGame(); return; }
+  pause();
+  state.confirmRestart = true;
+  updateOverlay();
+}
 // 難易度はスタート前（タイトル／ゲームオーバー）だけ変更できる
 // ランキング：難易度ごとに上位5件を端末に保存する（壊れたデータは空として扱う）
 const RANK_SIZE = 5;
@@ -604,8 +628,8 @@ function setDifficulty(d) {
   updateOverlay();
 }
 function handlePause() {
-  if (state.phase === "play") setPhase("paused");
-  else if (state.phase === "paused") setPhase("play");
+  if (state.phase === "paused") resume();
+  else pause();
 }
 
 const keyMap = {
@@ -619,6 +643,8 @@ addEventListener("keydown", e => {
   const k = e.key && e.key.length === 1 ? e.key.toLowerCase() : e.key;
   const dir = keyMap[e.code] || keyMap[k];
   if (dir) { e.preventDefault(); handleDir(dir); return; }
+  // キーボードでボタンを選んでいるときの SPACE / Enter は、そのボタンを押す操作にする
+  if ((k === " " || k === "Enter") && e.target.closest && e.target.closest("button")) return;
   if (e.repeat) return;
   if (e.code === "Space" || k === " ") { e.preventDefault(); handleAction(); }
   else if (e.code === "KeyR" || k === "r") handleRestart();
@@ -634,16 +660,22 @@ for (const type of ["pointerdown", "touchend", "click"]) addEventListener(type, 
 // ---------------------------------------------------------------- タッチ操作（スマホ対応）
 addEventListener("touchstart", () => document.documentElement.classList.add("touch"), { once: true, passive: true });
 
-document.querySelectorAll("#dpad [data-dir]").forEach(btn => {
-  btn.addEventListener("pointerdown", e => { e.preventDefault(); handleDir(btn.dataset.dir); });
-});
-document.getElementById("btnAction").addEventListener("pointerdown", e => { e.preventDefault(); handleAction(); });
-document.getElementById("btnRestart").addEventListener("pointerdown", e => { e.preventDefault(); handleRestart(); });
-document.getElementById("btnMute").addEventListener("click", () => setMuted(!state.muted));
+// 指では触れた瞬間(pointerdown)に反応させる。キーボードや読み上げ機能からの操作は click だけが届くので、そちらでも受ける
+function bindPress(btn, fn) {
+  let pressedAt = -Infinity;
+  btn.addEventListener("pointerdown", e => { e.preventDefault(); pressedAt = e.timeStamp; fn(); });
+  btn.addEventListener("click", e => { if (e.detail === 0 && e.timeStamp - pressedAt > 700) fn(); });
+}
+// マウスやタップで押したボタンに選択状態が残ると、次の SPACE がそのボタンに効いてしまうので外す
+const releaseFocus = e => { if (e.detail > 0) e.currentTarget.blur(); };
+document.querySelectorAll("#dpad [data-dir]").forEach(btn => bindPress(btn, () => handleDir(btn.dataset.dir)));
+bindPress(document.getElementById("btnAction"), handleAction);
+bindPress(document.getElementById("btnRestart"), handleRestart);
+document.getElementById("btnMute").addEventListener("click", e => { setMuted(!state.muted); releaseFocus(e); });
 // 難易度ボタン：盤面側のスワイプ/タップ処理(=スタート)に伝わらないよう止める
 document.querySelectorAll("#diffPick [data-diff]").forEach(b => {
   b.addEventListener("pointerdown", e => e.stopPropagation());
-  b.addEventListener("click", () => setDifficulty(b.dataset.diff));
+  b.addEventListener("click", e => { setDifficulty(b.dataset.diff); releaseFocus(e); });
 });
 
 // 盤面上のスワイプ：指が一定距離動いた瞬間に方向転換し、起点を更新して連続入力も可能。
@@ -652,6 +684,7 @@ const SWIPE_MIN = 22;
 const wrapEl = document.getElementById("wrap");
 let swipe = null;
 wrapEl.addEventListener("pointerdown", e => {
+  if (e.button > 0) return;                       // 右クリック・中クリックは操作にしない
   swipe = { x: e.clientX, y: e.clientY, moved: false, id: e.pointerId };
   try { wrapEl.setPointerCapture(e.pointerId); } catch (err) { /* 無視 */ }
 });
@@ -691,10 +724,10 @@ function pollGamepad() {
 
 // タブが裏に回ったら自動でポーズ
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden && state.phase === "play") setPhase("paused");
+  if (document.hidden) pause();
 });
 // 別のウィンドウやアドレスバーに操作が移った場合もポーズ
-addEventListener("blur", () => { if (state.phase === "play") setPhase("paused"); });
+addEventListener("blur", pause);
 
 // ---------------------------------------------------------------- 移動処理
 // 各キャラは「タイル(c,r) + 進行度 prog(0..1)」で位置を持ち、
@@ -908,6 +941,7 @@ function checkFruit(dt) {
 }
 
 function update(dt) {
+  if (state.phase === "paused") return;           // ポーズ中は得点表示なども含めて何も進めない
   clock += dt;
   for (let i = popups.length - 1; i >= 0; i--) {
     popups[i].t -= dt;
@@ -1099,15 +1133,18 @@ function drawFruit(level, x, y) {
   ctx.restore();
 }
 
+// ポーズ中は、止めた場面の見た目のままにする
+const scene = () => state.phase === "paused" ? state.resumeTo : state.phase;
+
 function drawPac() {
   const { x, y } = actorPos(pac);
   const angle = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }[pac.dir];
   let open;
-  if (state.phase === "dying") {
+  if (scene() === "dying") {
     open = Math.min(Math.PI, pac.dead * 2.2); // 死亡アニメ：口が開いて消える
     if (open >= Math.PI) return;
   } else {
-    open = state.phase === "play" ? (Math.abs(Math.sin(pac.mouth)) * 0.32 + 0.02) * Math.PI : 0.2 * Math.PI;
+    open = scene() === "play" ? (Math.abs(Math.sin(pac.mouth)) * 0.32 + 0.02) * Math.PI : 0.2 * Math.PI;
   }
   ctx.save();
   ctx.translate(x, y);
@@ -1185,7 +1222,7 @@ function draw(time) {
   const copies = a => { const x = actorPos(a).x; return x < TILE ? [0, W] : x > W - TILE ? [0, -W] : [0]; };
   const drawAt = (a, fn) => { for (const dx of copies(a)) { ctx.save(); ctx.translate(dx, 0); fn(); ctx.restore(); } };
   drawAt(pac, drawPac);
-  if (state.phase !== "dying" && state.phase !== "levelclear") for (const g of ghosts) drawAt(g, () => drawGhost(g, time));
+  if (scene() !== "dying" && scene() !== "levelclear") for (const g of ghosts) drawAt(g, () => drawGhost(g, time));
   drawPopups();
 }
 
@@ -1238,7 +1275,10 @@ function updateOverlay() {
   switch (state.phase) {
     case "title":      show("PAC-MAN", "タップ / SPACE でスタート", touch ? HINT_TOUCH : HINT_KEYS); break;
     case "ready":      show("READY!", DIFFS[state.difficulty].label + "　" + state.lives + " 機のこり"); break;
-    case "paused":     show("PAUSE", "タップ / SPACE / P で再開"); break;
+    case "paused":
+      if (state.confirmRestart) show("RESTART?", "もう一度 R / ⟳ で最初から", "タップ / SPACE でゲームに戻る");
+      else show("PAUSE", "タップ / SPACE / P で再開");
+      break;
     case "gameover": {
       const record = state.score > state.startHigh;
       show("GAME OVER", (record ? "NEW HIGH SCORE  " : "SCORE ") + state.score, "タップ / SPACE でもう一度");

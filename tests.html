@@ -52,6 +52,8 @@ frame.addEventListener("load", () => {
   const ghostOnPac = g => { g.c = P.pac.c; g.r = P.pac.r; g.prog = P.pac.prog; g.dir = P.pac.dir; g.blocked = false; g.mode = "out"; };
   const isWall = (c, r) => { const ch = (r < 0 || r >= 31) ? "#" : P.MAZE[r][((c % 28) + 28) % 28]; return ch === "#" || ch === "X"; };
   const place = (c, r, prog, dir) => Object.assign(P.pac, { c, r, prog, dir, want: dir, blocked: false });
+  const ptr = (el, type, x, y, id = 1) => el.dispatchEvent(new win.PointerEvent(type, { bubbles: true, pointerId: id, isPrimary: true, clientX: x, clientY: y }));
+  const clearRank = () => { for (const k of ["pacman-rank", "pacman-rank-easy", "pacman-rank-hard"]) win.localStorage.removeItem(k); };
 
   t("タイトルから開始 → READY → プレイ", () => {
     P.handleAction(); if (P.state.phase !== "ready") return P.state.phase;
@@ -215,6 +217,63 @@ frame.addEventListener("load", () => {
     P.handleAction(); if (P.state.phase !== "play") return P.state.phase;
     P.state.phase = "title"; win.dispatchEvent(new win.Event("blur")); if (P.state.phase !== "title") return "blur must not change non-play phases";
   });
+  t("READY・被弾・クリアの途中でもポーズでき、解除すると同じ場面の残り時間から再開する", () => {
+    const out = [];
+    const enter = {
+      ready: () => { P.newGame(); P.tick(1); },
+      dying: () => { freshPlay(); ghostOnPac(P.ghosts[0]); P.tick(0.5); },
+      levelclear: () => { freshPlay(); P.pelletsLeft = 0; P.tick(0.5); },
+    };
+    for (const [phase, go] of Object.entries(enter)) {
+      go(); if (P.state.phase !== phase) { out.push({ phase, got: P.state.phase }); continue; }
+      const left = P.state.timer, dead = P.pac.dead, lives = P.state.lives, level = P.state.level;
+      win.dispatchEvent(new win.Event("blur"));
+      if (P.state.phase !== "paused") { out.push({ phase, notPaused: P.state.phase }); continue; }
+      P.tick(5);
+      if (P.state.phase !== "paused" || P.pac.dead !== dead || P.state.lives !== lives || P.state.level !== level) out.push({ phase, advanced: true });
+      P.handleAction();
+      if (P.state.phase !== phase || Math.abs(P.state.timer - left) > 1e-9) out.push({ phase, resumed: P.state.phase, timer: P.state.timer, left });
+    }
+    const key = () => win.dispatchEvent(new win.KeyboardEvent("keydown", { code: "KeyP", key: "p" }));
+    P.newGame(); key(); if (P.state.phase !== "paused") out.push({ pKey: P.state.phase }); key(); if (P.state.phase !== "ready") out.push({ pKeyResume: P.state.phase });
+    P.handleAction(); if (P.state.phase !== "ready") out.push({ tapDuringReady: P.state.phase });   // タップ/SPACE の連打では止まらない
+    P.setPhase("title"); key(); if (P.state.phase !== "title") out.push({ titlePaused: P.state.phase });
+    if (out.length) return out;
+  });
+  t("ポーズ中は得点ポップアップも消えない", () => {
+    freshPlay(); P.popups.push({ x: 0, y: 0, text: "200", t: 1, color: "#fff" }); P.handleAction(); P.tick(3);
+    if (!(P.popups.length === 1 && P.popups[0].t === 1)) return P.popups;
+    P.popups.length = 0;
+  });
+  t("リスタート：ゲーム中は1回目で確認、戻れば続行、2回目で確定して得点をランキングに残す", () => {
+    clearRank(); freshPlay(); P.state.score = 640;
+    const title = () => doc.getElementById("ovTitle").textContent;
+    const r = () => win.dispatchEvent(new win.KeyboardEvent("keydown", { code: "KeyR", key: "r" }));
+    r(); if (!(P.state.phase === "paused" && title() === "RESTART?" && P.state.score === 640)) return ["ask", P.state.phase, title()];
+    P.handleAction(); if (!(P.state.phase === "play" && P.state.score === 640)) return ["back", P.state.phase];
+    P.handleAction(); if (title() !== "PAUSE") return ["confirm text must not remain", title()];
+    r(); if (!(title() === "RESTART?" && P.state.score === 640)) return ["ask while paused", title()];
+    if (P.loadRank("normal").length !== 0) return "recorded before confirmation";
+    r(); const got = [P.state.phase, P.state.score, P.loadRank("normal").join()]; clearRank();
+    if (got.join() !== "ready,0,640") return got;
+    P.setPhase("title"); r(); if (P.state.phase !== "ready") return ["title restarts at once", P.state.phase];
+    P.setPhase("title");
+  });
+  t("キーボード操作：選んだボタン上の SPACE はゲームに伝わらず、click だけでも各ボタンが効き、タッチでは二重に反応しない", () => {
+    freshPlay(); const btn = sel => doc.querySelector(sel);
+    const space = el => el.dispatchEvent(new win.KeyboardEvent("keydown", { bubbles: true, cancelable: true, code: "Space", key: " " }));
+    const notCancelled = space(btn("#btnMute")); if (!(notCancelled && P.state.phase === "play")) return ["space on button", notCancelled, P.state.phase];   // 既定の動作(ボタンを押す)を止めない
+    space(doc.body); if (P.state.phase !== "paused") return ["space elsewhere", P.state.phase];
+    btn("#btnAction").click(); if (P.state.phase !== "play") return ["click action", P.state.phase];
+    btn('#dpad [data-dir="up"]').click(); if (P.pac.want !== "up") return ["click dpad", P.pac.want];
+    const a = btn("#btnAction"); ptr(a, "pointerdown", 0, 0); a.click(); if (P.state.phase !== "paused") return ["double fire", P.state.phase];
+    P.setPhase("title");
+  });
+  t("盤面の右クリックではポーズしない", () => {
+    freshPlay(); const w = doc.getElementById("wrap");
+    for (const type of ["pointerdown", "pointerup"]) w.dispatchEvent(new win.PointerEvent(type, { bubbles: true, pointerId: 9, button: 2, clientX: 50, clientY: 50 }));
+    if (P.state.phase !== "play") return P.state.phase;
+  });
   t("ストレージが使えない環境でもゲームが動く（保存が例外を投げても続行）", () => {
     const proto = win.Storage.prototype, getI = proto.getItem, setI = proto.setItem;
     proto.getItem = () => { throw new Error("denied"); }; proto.setItem = () => { throw new Error("denied"); };
@@ -277,7 +336,6 @@ frame.addEventListener("load", () => {
     P.setPhase("play"); if (doc.getElementById("diffPick").style.display !== "none") return "picker visible during play";
     toNormal();
   });
-  const clearRank = () => { for (const k of ["pacman-rank", "pacman-rank-easy", "pacman-rank-hard"]) win.localStorage.removeItem(k); };
   t("ランキング：降順に並び、上位5件だけ残り、0点は記録されない", () => {
     clearRank(); P.setPhase("title"); P.setDifficulty("normal");
     const got = [];
@@ -398,7 +456,6 @@ frame.addEventListener("load", () => {
     }
     if (stuck.length) return stuck.slice(0, 3);
   });
-  const ptr = (el, type, x, y, id = 1) => el.dispatchEvent(new win.PointerEvent(type, { bubbles: true, pointerId: id, isPrimary: true, clientX: x, clientY: y }));
   const wrapEl = () => doc.getElementById("wrap");
   t("スマホ操作：スワイプは指を離す前に反応し、連続で方向を変えられ、離してもポーズしない", () => {
     freshPlay(); const w = wrapEl(), b = w.getBoundingClientRect(), x = b.x + b.width / 2, y = b.y + b.height / 2;
@@ -423,8 +480,9 @@ frame.addEventListener("load", () => {
     for (const d of ["up", "down", "right", "left"]) { ptr(btn(`#dpad [data-dir="${d}"]`), "pointerdown", 0, 0); if (P.pac.want !== d) return [d, P.pac.want]; }
     ptr(btn("#btnAction"), "pointerdown", 0, 0); if (P.state.phase !== "paused" || btn("#btnAction").textContent !== "▶") return ["pause", P.state.phase, btn("#btnAction").textContent];
     ptr(btn("#btnAction"), "pointerdown", 0, 0); if (P.state.phase !== "play" || btn("#btnAction").textContent !== "⏸") return ["resume", P.state.phase];
-    P.state.score = 500; ptr(btn("#btnRestart"), "pointerdown", 0, 0); if (!(P.state.phase === "ready" && P.state.score === 0)) return ["restart", P.state.phase, P.state.score];
-    P.setPhase("title");
+    P.state.score = 500; ptr(btn("#btnRestart"), "pointerdown", 0, 0); if (!(P.state.phase === "paused" && P.state.score === 500)) return ["restart must ask first", P.state.phase, P.state.score];
+    ptr(btn("#btnRestart"), "pointerdown", 0, 0); if (!(P.state.phase === "ready" && P.state.score === 0)) return ["restart", P.state.phase, P.state.score];
+    P.setPhase("title"); clearRank();
   });
   t("描画解像度：表示サイズに合わせた倍率になり、盤面が縮小されても過剰に描かない", () => {
     const cv = doc.getElementById("game"), wrap = doc.getElementById("wrap");
