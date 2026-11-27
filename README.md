@@ -1,5 +1,7 @@
 # PAC-MAN Clone
 
+**[▶ ブラウザで遊ぶ](https://tg2032.github.io/pacman-clone/)**　／　[自動テストを実行する](https://tg2032.github.io/pacman-clone/tests.html)　／　[![Run tests](https://github.com/tg2032/pacman-clone/actions/workflows/tests.yml/badge.svg)](https://github.com/tg2032/pacman-clone/actions/workflows/tests.yml)
+
 HTML + CSS + JavaScript だけで動く、外部アセット不使用・単一ファイル完結のパックマンクローンです。Canvas 2D で迷路とキャラクターを描画し、WebAudio でその場生成する効果音を鳴らします。
 
 ## 遊び方
@@ -41,7 +43,7 @@ HTML + CSS + JavaScript だけで動く、外部アセット不使用・単一�
 
 ## 遊ぶには
 
-`index.html` をブラウザで開くだけで動作します。GitHub Pages を有効化すれば、そのままブラウザからプレイできます。
+[公開ページ](https://tg2032.github.io/pacman-clone/)でそのまま遊べます（スマホ対応）。手元で動かす場合は、`index.html` をブラウザで開くだけです。
 
 ## 自動テスト
 
